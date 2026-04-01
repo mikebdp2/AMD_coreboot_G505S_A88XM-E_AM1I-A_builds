@@ -1,0 +1,182 @@
+From b0beb9bc62aea0949c58840ef8507eb0598b18ec Mon Sep 17 00:00:00 2001
+From: Mike Banon <mikebdp2@gmail.com>
+Date: Mon, 07 Dec 2020 07:01:34 +0300
+Subject: [PATCH] asus/a88xm-e: add the PIRQ routing table
+
+Add the PIRQ routing table for this board.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+Change-Id: I8fe3fb03ca0e7a2fecb92efeaf621925b198a39f
+---
+
+diff --git a/src/mainboard/asus/a88xm-e/Kconfig b/src/mainboard/asus/a88xm-e/Kconfig
+index 56dddeb..d50e4ec 100644
+--- a/src/mainboard/asus/a88xm-e/Kconfig
++++ b/src/mainboard/asus/a88xm-e/Kconfig
+@@ -40,7 +40,7 @@
+ 
+ config IRQ_SLOT_COUNT
+ 	int
+-	default 11
++	default 21
+ 
+ config VGA_BIOS_ID
+ 	string
+diff --git a/src/mainboard/asus/a88xm-e/irq_tables.c b/src/mainboard/asus/a88xm-e/irq_tables.c
+index 7ca1c4b..d6a6e3d 100644
+--- a/src/mainboard/asus/a88xm-e/irq_tables.c
++++ b/src/mainboard/asus/a88xm-e/irq_tables.c
+@@ -1,84 +1,77 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ 
+ #include <arch/pirq_routing.h>
+-#include <console/console.h>
+-#include <device/pci_def.h>
+-#include <string.h>
+ 
+-static void write_pirq_info(struct irq_info *pirq_info, u8 bus, u8 devfn,
+-			    u8 link0, u16 bitmap0, u8 link1, u16 bitmap1,
+-			    u8 link2, u16 bitmap2, u8 link3, u16 bitmap3, u8 slot, u8 rfu)
+-{
+-	pirq_info->bus = bus;
+-	pirq_info->devfn = devfn;
+-	pirq_info->irq[0].link = link0;
+-	pirq_info->irq[0].bitmap = bitmap0;
+-	pirq_info->irq[1].link = link1;
+-	pirq_info->irq[1].bitmap = bitmap1;
+-	pirq_info->irq[2].link = link2;
+-	pirq_info->irq[2].bitmap = bitmap2;
+-	pirq_info->irq[3].link = link3;
+-	pirq_info->irq[3].bitmap = bitmap3;
+-	pirq_info->slot = slot;
+-	pirq_info->rfu = rfu;
+-}
++const struct irq_routing_table intel_irq_routing_table = {
++	PIRQ_SIGNATURE,				/* u32 signature */
++	PIRQ_VERSION,				/* u16 version */
++	32 + 16 * CONFIG_IRQ_SLOT_COUNT,	/* Max. number of devices on the bus */
++	0x00,					/* Interrupt router bus */
++	(0x14 << 3) | 0x3,			/* Interrupt router dev */
++	0,					/* IRQs devoted exclusively to PCI usage */
++	0x1022,					/* Vendor */
++	0x780e,					/* Device */
++	0,					/* Miniport */
++	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },	/* u8 rfu[11] */
++	0x14,					/* Checksum (has to be set to some value that
++						* would give 0 after the sum of all bytes
++						* for this structure (including checksum).
++						*/
++	/* clang-format off */
++	{
++		/* bus,        dev | fn,  {{link, bitmap}, {link, bitmap}, {link, bitmap}, {link, bitmap} }, slot, rfu */
++		/* IOMMU:			0:00.02 - IRQ 3 */
++		{0x00, (0x00 << 3) | 0x2, {{0x01, 0xccf0}, {0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0} }, 0x0, 0x0},
++		/* APU Integrated Graphics:	0:01.00 - IRQ 3 */
++		/* APU HDMI Audio Controller:	0:01.01 - IRQ 4 */
++		{0x00, (0x01 << 3) | 0x0, {{0x01, 0xccf0}, {0x02, 0xccf0}, {0x00, 0x0000}, {0x00, 0x0000} }, 0x0, 0x0},
++		/* PCIe GPP to dGPU 1:00.00:	0:02.00 - IRQ 3 */
++		{0x00, (0x02 << 3) | 0x0, {{0x01, 0xccf0}, {0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0} }, 0x0, 0x0},
++		/* PCIe GPP to 2:00.00:		0:04.00 - IRQ 3 */
++		{0x00, (0x04 << 3) | 0x0, {{0x01, 0xccf0}, {0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0} }, 0x0, 0x0},
++		/* PCIe GPP to 3:00.00:		0:05.00 - IRQ 3 */
++		{0x00, (0x05 << 3) | 0x0, {{0x01, 0xccf0}, {0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0} }, 0x0, 0x0},
++		/* PCIe GPP to Eth 4:00.00:	0:06.00 - IRQ 4 */
++		{0x00, (0x06 << 3) | 0x0, {{0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0}, {0x01, 0xccf0} }, 0x0, 0x0},
++		/* USB XHCI:			0:10.00 - IRQ 5 */
++		{0x00, (0x10 << 3) | 0x0, {{0x03, 0xccf0}, {0x00, 0x0000}, {0x00, 0x0000}, {0x00, 0x0000} }, 0x0, 0x0},
++		/* SATA:			0:11.00 - IRQ 7 */
++		{0x00, (0x11 << 3) | 0x0, {{0x04, 0xccf0}, {0x00, 0x0000}, {0x00, 0x0000}, {0x00, 0x0000} }, 0x0, 0x0},
++		/* USB OHCI1:			0:12.00 - IRQ 5 */
++		/* USB EHCI1:			0:12.02 - IRQ 4 */
++		{0x00, (0x12 << 3) | 0x0, {{0x03, 0xccf0}, {0x02, 0xccf0}, {0x00, 0x0000}, {0x00, 0x0000} }, 0x0, 0x0},
++		/* USB OHCI2:			0:13.00 - IRQ 5 */
++		/* USB EHCI2:			0:13.02 - IRQ 4 */
++		{0x00, (0x13 << 3) | 0x0, {{0x03, 0xccf0}, {0x02, 0xccf0}, {0x00, 0x0000}, {0x00, 0x0000} }, 0x0, 0x0},
++		/* USB OHCI3:			0:16.00 - IRQ 5 */
++		/* USB EHCI3:			0:16.02 - IRQ 4 */
++		{0x00, (0x16 << 3) | 0x0, {{0x03, 0xccf0}, {0x02, 0xccf0}, {0x00, 0x0000}, {0x00, 0x0000} }, 0x0, 0x0},
++		/* Southbridge HD Audio:	0:14.02 - IRQ 3 */
++		/* USB OHCI4:			0:14.05 - IRQ 5 */
++		{0x00, (0x14 << 3) | 0x0, {{0x01, 0xccf0}, {0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0} }, 0x0, 0x0},
++		/* Southbridge PCI Port:	0:14.04 - IRQ 11 */
++		{0x00, (0x14 << 3) | 0x4, {{0x05, 0xccf0}, {0x06, 0xccf0}, {0x00, 0x0000}, {0x00, 0x0000} }, 0x0, 0x0},
++		/* Southbridge PCIe Port 1:	0:15.00 - IRQ 4 */
++		{0x00, (0x15 << 3) | 0x0, {{0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0}, {0x01, 0xccf0} }, 0x0, 0x0},
++		/* Southbridge PCIe Port 2:	0:15.01 - IRQ 5 */
++		{0x00, (0x15 << 3) | 0x1, {{0x03, 0xccf0}, {0x04, 0xccf0}, {0x01, 0xccf0}, {0x02, 0xccf0} }, 0x0, 0x0},
++		/* Southbridge PCIe Port 3:	0:15.02 - IRQ 7 */
++		{0x00, (0x15 << 3) | 0x2, {{0x04, 0xccf0}, {0x01, 0xccf0}, {0x02, 0xccf0}, {0x03, 0xccf0} }, 0x0, 0x0},
++		/* Southbridge PCIe Port 4:	0:15.03 - IRQ 3 */
++		{0x00, (0x15 << 3) | 0x3, {{0x01, 0xccf0}, {0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0} }, 0x0, 0x0},
++		/* Discrete Graphics (dGPU) 1:00.00 behind a 0:02.00 PCIe GPP - IRQ 3 */
++		{0x01, (0x00 << 3) | 0x0, {{0x01, 0xccf0}, {0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0} }, 0x1, 0x0},
++		/* 2:00.00 behind a 0:04.00 PCIe GPP - IRQ 3 */
++		{0x02, (0x00 << 3) | 0x0, {{0x01, 0xccf0}, {0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0} }, 0x2, 0x0},
++		/* 3:00.00 behind a 0:05.00 PCIe GPP - IRQ 4 */
++		{0x03, (0x00 << 3) | 0x0, {{0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0}, {0x01, 0xccf0} }, 0x3, 0x0},
++		/* Onboard Ethernet (Eth) 4:00.00 behind a 0:06.00 PCIe GPP - IRQ 4 */
++		{0x04, (0x00 << 3) | 0x0, {{0x02, 0xccf0}, {0x03, 0xccf0}, {0x04, 0xccf0}, {0x01, 0xccf0} }, 0x4, 0x0}
++	}
++	/* clang-format on */
++};
+ 
+ unsigned long write_pirq_routing_table(unsigned long addr)
+ {
+-	struct irq_routing_table *pirq;
+-	struct irq_info *pirq_info;
+-	u32 slot_num;
+-
+-	u8 sum = 0;
+-	int i;
+-
+-	/* Align the table to be 16 byte aligned. */
+-	addr = ALIGN_UP(addr, 16);
+-
+-	/* This table must be between 0xf0000 & 0x100000 */
+-	printk(BIOS_INFO, "Writing IRQ routing tables to 0x%lx...", addr);
+-
+-	pirq = (void *)(addr);
+-
+-	pirq->signature = PIRQ_SIGNATURE;
+-	pirq->version = PIRQ_VERSION;
+-
+-	pirq->rtr_bus = 0;
+-	pirq->rtr_devfn = PCI_DEVFN(0x14, 4);
+-
+-	pirq->exclusive_irqs = 0;
+-
+-	pirq->rtr_vendor = 0x1002;
+-	pirq->rtr_device = 0x4384;
+-
+-	pirq->miniport_data = 0;
+-
+-	memset(pirq->rfu, 0, sizeof(pirq->rfu));
+-
+-	pirq_info = (void *)(&pirq->slots);
+-	slot_num = 0;
+-
+-	/* pci bridge */
+-	write_pirq_info(pirq_info, 0, PCI_DEVFN(0x14, 4),
+-			0x1, 0xdef8, 0x2, 0xdef8, 0x3, 0xdef8, 0x4, 0xdef8, 0, 0);
+-	pirq_info++;
+-
+-	slot_num++;
+-
+-	pirq->size = 32 + 16 * slot_num;
+-
+-	{
+-		const u8 *const v = (u8 *)(pirq);
+-		for (i = 0; i < pirq->size; i++)
+-			sum += v[i];
+-	}
+-
+-	sum = pirq->checksum - sum;
+-
+-	if (sum != pirq->checksum)
+-		pirq->checksum = sum;
+-
+-	printk(BIOS_INFO, "%s done.\n", __func__);
+-
+-	return (unsigned long)pirq_info;
++	return copy_pirq_routing_table(addr, &intel_irq_routing_table);
+ }

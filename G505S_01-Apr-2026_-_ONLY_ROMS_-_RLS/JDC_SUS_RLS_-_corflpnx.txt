@@ -1,0 +1,26 @@
+FMAP REGION: COREBOOT
+Name                           Offset     Type           Size   Comp
+cbfs_master_header             0x0        cbfs header        32 none
+fallback/romstage              0x80       stage          330928 none
+fallback/ramstage              0x50e00    stage          191584 LZMA (477304 decompressed)
+config                         0x7fb00    raw              2876 LZMA (8774 decompressed)
+revision                       0x806c0    raw               782 none
+build_info                     0x80a40    raw               110 none
+fallback/dsdt.aml              0x80b40    raw              8250 none
+cmos_layout.bin                0x82c00    cmos_layout       616 none
+pci1002,990b.rom               0x82f00    optionrom       61952 none
+pci1002,6665.rom               0x92180    optionrom       32768 none
+fallback/postcar               0x9a200    stage           38240 none
+img/coreinfo                   0xa3800    simple elf      43942 none
+fallback/payload               0xae440    simple elf      68300 none
+payload_config                 0xbefc0    raw              1674 none
+payload_revision               0xbf6c0    raw               268 none
+img/tint                       0xbf880    simple elf      37835 none
+pci1002,6663.rom               0xc8cc0    optionrom       33792 none
+floppyimg/flopbird.lzma        0xd1140    raw              2150 LZMA (1474560 decompressed)
+floppyimg/tatos.lzma           0xd1a40    raw             61281 LZMA (1474560 decompressed)
+floppyimg/memtst64.lzma        0xe0a40    raw             68210 LZMA (1474560 decompressed)
+floppyimg/snowdrop.lzma        0xf1540    raw            185685 LZMA (1474560 decompressed)
+floppyimg/flpnxath.lzma        0x11eb40   raw           2868198 LZMA (2949120 decompressed)
+(empty)                        0x3dafc0   null            49124 none
+bootblock                      0x3e6fc0   bootblock       32768 none

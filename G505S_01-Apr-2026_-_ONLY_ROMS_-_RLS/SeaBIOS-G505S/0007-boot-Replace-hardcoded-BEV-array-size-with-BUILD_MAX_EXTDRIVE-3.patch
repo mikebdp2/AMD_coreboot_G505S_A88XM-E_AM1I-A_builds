@@ -1,0 +1,32 @@
+boot: Replace hardcoded BEV array size with BUILD_MAX_EXTDRIVE * 3
+
+The BEV array stores boot entries for floppy, HDD and CDROM drives, as well as
+option ROMs and other boot sources. The previous hardcoded limit of 20 entries
+was arbitrary and could be exceeded when many drives are present - especially
+with the upcoming support for multiple floppies and ramdisk images.
+
+The max number of drive boot entries is bounded by BUILD_MAX_EXTDRIVE per drive
+type. Since there are three drive types, the worst-case drive-only total is
+BUILD_MAX_EXTDRIVE * 3. Using this value ensures that the array cannot overflow
+due to the drives, while still leaving enough room for the option ROM entries.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ src/boot.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/boot.c b/src/boot.c
+index 5c37dafd..18e62a43 100644
+--- a/src/boot.c
++++ b/src/boot.c
+@@ -798,7 +798,7 @@ struct bev_s {
+     int type;
+     u32 vector;
+ };
+-static struct bev_s BEV[20];
++static struct bev_s BEV[BUILD_MAX_EXTDRIVE * 3];
+ static int BEVCount;
+ static int HaveHDBoot, HaveFDBoot;
+ 
+-- 
+2.53.0

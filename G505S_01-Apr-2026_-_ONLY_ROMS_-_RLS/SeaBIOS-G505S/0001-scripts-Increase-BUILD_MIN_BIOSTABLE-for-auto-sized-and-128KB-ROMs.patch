@@ -1,0 +1,63 @@
+scripts: Increase BUILD_MIN_BIOSTABLE for auto-sized and 128KB ROMs
+
+When CONFIG_ROM_SIZE is left at 0 (auto), checkrom.py will automatically
+determine the ROM size based on the actual binary size (up to 256KB).
+However, layoutrom.py only increased BUILD_MIN_BIOSTABLE to 8192 when
+CONFIG_ROM_SIZE was explicitly set to 256 or larger. This meant that if
+the code grew large enough to require a 256KB ROM, layoutrom.py would
+still use the smaller 2048-byte F-segment reserve, potentially causing
+resource allocation problems in case of a big number of boot entries.
+Also, 128KB ROMs should have a larger 4096-byte F-segment reserve.
+
+Fix this erroneous behavior for non-specified CONFIG_ROM_SIZE case by
+calculating the total raw size of all sections that will be placed in
+the ROM. This raw sum underestimates the final binary size by roughly
+5% due to alignment padding and relocation tables, so if it exceeds
+64KB we can reliably conclude the final ROM will be at least 128KB and
+set BUILD_MIN_BIOSTABLE = 4096; if it exceeds 128KB the final ROM will
+be 256KB and we set BUILD_MIN_BIOSTABLE = 8192, matching the behavior
+for explicitly configured 128KB and 256KB ROMs.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ scripts/layoutrom.py | 18 ++++++++++++++----
+ 1 file changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/scripts/layoutrom.py b/scripts/layoutrom.py
+index abebf021..4fe75ceb 100755
+--- a/scripts/layoutrom.py
++++ b/scripts/layoutrom.py
+@@ -651,10 +651,6 @@ def main():
+     # Read kconfig config file
+     config = scanconfig(cfgfile)
+ 
+-    # larger roms have more room in the f-segment due to moving out 32bit code
+-    if config.get('CONFIG_ROM_SIZE') >= 256:
+-        BUILD_MIN_BIOSTABLE = 8192
+-
+     # Figure out which sections to keep.
+     allsections = info16[0] + info32seg[0] + info32flat[0]
+     symbols = {'16': info16[1], '32seg': info32seg[1], '32flat': info32flat[1]}
+@@ -670,6 +666,20 @@ def main():
+     keepsections = findReachable(anchorsections, checkKeep, symbols)
+     sections = [section for section in allsections if section in keepsections]
+ 
++    # larger roms have more room in the f-segment due to moving out 32bit code
++    if config.get('CONFIG_ROM_SIZE') >= 128:
++        BUILD_MIN_BIOSTABLE = 4096
++    if config.get('CONFIG_ROM_SIZE') >= 256:
++        BUILD_MIN_BIOSTABLE = 8192
++    if config.get('CONFIG_ROM_SIZE') == 0:
++        sections_size = 0
++        for section in sections:
++            sections_size += section.size
++        if sections_size >  64 * 1024:
++            BUILD_MIN_BIOSTABLE = 4096
++        if sections_size > 128 * 1024:
++            BUILD_MIN_BIOSTABLE = 8192
++
+     # Separate 32bit flat into runtime, init, and special variable parts
+     anchorsections = [
+         section for section in sections
+-- 
+2.53.0

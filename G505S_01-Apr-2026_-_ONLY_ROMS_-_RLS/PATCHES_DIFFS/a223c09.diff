@@ -1,0 +1,326 @@
+From a223c0939ddcdccd8f165c740d493dd2947a53fd Mon Sep 17 00:00:00 2001
+From: Mike Banon <mike.banon@3mdeb.com>
+Date: Fri, 29 Oct 2021 19:05:41 +0300
+Subject: [PATCH] asus/am1i-a: update the ACPI routing to match the new IRQ routing
+
+Update the ACPI routing in accordance with the new IRQ tables.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+Change-Id: I4901c96acafeba279104ff3fb10cacc7b5693d37
+---
+
+diff --git a/src/mainboard/asus/am1i-a/acpi/routing.asl b/src/mainboard/asus/am1i-a/acpi/routing.asl
+index 6247bbf..82a46d4 100644
+--- a/src/mainboard/asus/am1i-a/acpi/routing.asl
++++ b/src/mainboard/asus/am1i-a/acpi/routing.asl
+@@ -1,162 +1,160 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ 
+-/* Routing is in System Bus scope */
+-Name(PR0, Package(){
+-	/* NB devices */
+-	/* Bus 0, Dev 0 - F16 Host Controller */
++	/* Routing is in System Bus scope */
++	Name(PR0, Package(){
++		/* NB devices */
++		/* Bus 0, Dev 0 - F16 Host Controller */
++		/* Bus 0, Dev 1 - PCI Bridge for Internal Graphics (IGP) */
++		/* APU Integrated Graphics:	0:01.00 - IRQ 3 */
++		Package(){0x0001FFFF, 0, INTA, 0 },
++		/* APU HDMI Audio Controller:	0:01.01 - IRQ 4 */
++		Package(){0x0001FFFF, 1, INTB, 0 },
+ 
+-	/* Bus 0, Dev 1, Func 0 - PCI Bridge for Internal Graphics(IGP) */
+-	/* Bus 0, Dev 1, Func 1 - HDMI Audio Controller */
+-	Package(){0x0001FFFF, 0, INTA, 0 },
+-	Package(){0x0001FFFF, 1, INTB, 0 },
++		/* Bus 0, Dev 2 - PCIe Bridge for x4 PCIe Slot (GFX0) */
++		/* PCIe GPP to dGPU 1:00.00:	0:02.01 - IRQ 3 */
++		Package(){0x0002FFFF, 0, INTA, 0 },
++		/* PCIe GPP to Eth 2:00.00:	0:02.05 - IRQ 4 */
++		Package(){0x0002FFFF, 1, INTB, 0 },
++		Package(){0x0002FFFF, 2, INTC, 0 },
++		Package(){0x0002FFFF, 3, INTD, 0 },
+ 
+-	/* Bus 0, Dev 2 - PCIe Bridges */
+-	Package(){0x0002FFFF, 0, INTA, 0 },
+-	Package(){0x0002FFFF, 1, INTB, 0 },
+-	Package(){0x0002FFFF, 2, INTC, 0 },
+-	Package(){0x0002FFFF, 3, INTD, 0 },
++		/* FCH devices */
++		/* USB XHCI:			0:10.00 - IRQ 5 */
++		Package(){0x0010FFFF, 0, INTC, 0 },
++		/* SATA:			0:11.00 - IRQ 7 */
++		Package(){0x0011FFFF, 0, INTD, 0 },
++		/* USB OHCI1:			0:12.00 - IRQ 5 */
++		Package(){0x0012FFFF, 0, INTC, 0 },
++		/* USB EHCI1:			0:12.02 - IRQ 4 */
++		Package(){0x0012FFFF, 1, INTB, 0 },
++		/* USB OHCI2:			0:13.00 - IRQ 5 */
++		Package(){0x0013FFFF, 0, INTC, 0 },
++		/* USB EHCI2:			0:13.02 - IRQ 4 */
++		Package(){0x0013FFFF, 1, INTB, 0 },
++		/* USB OHCI3:			0:16.00 - IRQ 5 */
++		Package(){0x0016FFFF, 0, INTC, 0 },
++		/* USB EHCI3:			0:16.02 - IRQ 4 */
++		Package(){0x0016FFFF, 1, INTB, 0 },
++		/* Bus 0, Dev 20 - F0:SMBus/ACPI,F2:HDAudio;F3:LPC;F7:SD */
++		/* Southbridge HD Audio:	0:14.02 - IRQ 3 */
++		Package(){0x0014FFFF, 0, INTA, 0 },
++		Package(){0x0014FFFF, 1, INTB, 0 },
++		Package(){0x0014FFFF, 2, INTC, 0 },
++		Package(){0x0014FFFF, 3, INTD, 0 },
++	})
+ 
+-	/* FCH devices */
+-	/* Bus 0, Dev 14 - F0:SMBus/ACPI,F2:HDAudio;F3:LPC;F7:SD */
+-	Package(){0x0014FFFF, 0, INTA, 0 },
+-	Package(){0x0014FFFF, 1, INTB, 0 },
+-	Package(){0x0014FFFF, 2, INTC, 0 },
+-	Package(){0x0014FFFF, 3, INTD, 0 },
++	Name(APR0, Package(){
++		/* NB devices in APIC mode */
++		/* Bus 0, Dev 0 - F16 Host Controller */
++		/* Bus 0, Dev 1 - PCI Bridge for Internal Graphics (IGP) */
++		/* APU Integrated Graphics:	0:01.00 - IRQ 3 */
++		Package(){0x0001FFFF, 0, 0, 44 },
++		/* APU HDMI Audio Controller:	0:01.01 - IRQ 4 */
++		Package(){0x0001FFFF, 1, 0, 45 },
+ 
+-	/* Bus 0, Dev 12 Func 0 - USB: OHCI */
+-	/* Bus 0, Dev 12 Func 2 - USB: EHCI */
+-	Package(){0x0012FFFF, 0, INTC, 0 },
+-	Package(){0x0012FFFF, 1, INTB, 0 },
++		/* Bus 0, Dev 2 - PCIe Bridge for x4 PCIe Slot (GFX0) */
++		/* PCIe GPP to dGPU 1:00.00:	0:02.01 - IRQ 3 */
++		Package(){0x0002FFFF, 0, 0, 24 },
++		/* PCIe GPP to Eth 2:00.00:	0:02.05 - IRQ 4 */
++		Package(){0x0002FFFF, 1, 0, 25 },
++		Package(){0x0002FFFF, 2, 0, 26 },
++		Package(){0x0002FFFF, 3, 0, 27 },
+ 
+-	/* Bus 0, Dev 13 Func 0 - USB: OHCI */
+-	/* Bus 0, Dev 13 Func 2 - USB: EHCI */
+-	Package(){0x0013FFFF, 0, INTC, 0 },
+-	Package(){0x0013FFFF, 1, INTB, 0 },
++		/* FCH devices in APIC mode */
++		/* USB XHCI:			0:10.00 - IRQ 5 */
++		Package(){0x0010FFFF, 0, 0, 18 },
++		/* SATA:			0:11.00 - IRQ 7 */
++		Package(){0x0011FFFF, 0, 0, 19 },
++		/* USB OHCI1:			0:12.00 - IRQ 5 */
++		Package(){0x0012FFFF, 0, 0, 18 },
++		/* USB EHCI1:			0:12.02 - IRQ 4 */
++		Package(){0x0012FFFF, 1, 0, 17 },
++		/* USB OHCI2:			0:13.00 - IRQ 5 */
++		Package(){0x0013FFFF, 0, 0, 18 },
++		/* USB EHCI2:			0:13.02 - IRQ 4 */
++		Package(){0x0013FFFF, 1, 0, 17 },
++		/* USB OHCI3:			0:16.00 - IRQ 5 */
++		Package(){0x0016FFFF, 0, 0, 18 },
++		/* USB EHCI3:			0:16.02 - IRQ 4 */
++		Package(){0x0016FFFF, 1, 0, 17 },
++		/* Bus 0, Dev 20 - F0:SMBus/ACPI,F2:HDAudio;F3:LPC;F7:SD */
++		/* Southbridge HD Audio:	0:14.02 - IRQ 3 */
++		Package(){0x0014FFFF, 0, 0, 16 },
++		Package(){0x0014FFFF, 1, 0, 17 },
++		Package(){0x0014FFFF, 2, 0, 18 },
++		Package(){0x0014FFFF, 3, 0, 19 },
++	})
+ 
+-	/* Bus 0, Dev 16 Func 0 - USB: OHCI */
+-	/* Bus 0, Dev 16 Func 2 - USB: EHCI */
+-	Package(){0x0016FFFF, 0, INTC, 0 },
+-	Package(){0x0016FFFF, 1, INTB, 0 },
++	/* PCIe GPP 0 - PCIe x4 slot for a discrete GPU */
++	Name(PS4, Package(){
++		/* Discrete Graphics (dGPU) 1:00.00 behind a 0:02.01 PCIe GPP - IRQ 3 */
++		Package(){0x0000FFFF, 0, INTA, 0 },
++		Package(){0x0000FFFF, 1, INTB, 0 },
++		Package(){0x0000FFFF, 2, INTC, 0 },
++		Package(){0x0000FFFF, 3, INTD, 0 },
++	})
++	Name(APS4, Package(){
++		/* Discrete Graphics (dGPU) 1:00.00 behind a 0:02.01 PCIe GPP - IRQ 3 */
++		Package(){0x0000FFFF, 0, 0, 24 },
++		Package(){0x0000FFFF, 1, 0, 25 },
++		Package(){0x0000FFFF, 2, 0, 26 },
++		Package(){0x0000FFFF, 3, 0, 27 },
++	})
+ 
+-	/* Bus 0, Dev 10 - USB: XHCI func 0, 1 */
+-	Package(){0x0010FFFF, 0, INTC, 0 },
+-	Package(){0x0010FFFF, 1, INTB, 0 },
++	/* PCIe GPP 1 - not used */
++	Name(PS5, Package(){
++		Package(){0x0000FFFF, 0, INTB, 0 },
++		Package(){0x0000FFFF, 1, INTC, 0 },
++		Package(){0x0000FFFF, 2, INTD, 0 },
++		Package(){0x0000FFFF, 3, INTA, 0 },
++	})
++	Name(APS5, Package(){
++		Package(){0x0000FFFF, 0, 0, 29 },
++		Package(){0x0000FFFF, 1, 0, 30 },
++		Package(){0x0000FFFF, 2, 0, 31 },
++		Package(){0x0000FFFF, 3, 0, 28 },
++	})
+ 
+-	/* Bus 0, Dev 11 - SATA controller */
+-	Package(){0x0011FFFF, 0, INTD, 0 },
+-})
++	/* PCIe GPP 2 - not used */
++	Name(PS6, Package(){
++		Package(){0x0000FFFF, 0, INTC, 0 },
++		Package(){0x0000FFFF, 1, INTD, 0 },
++		Package(){0x0000FFFF, 2, INTA, 0 },
++		Package(){0x0000FFFF, 3, INTB, 0 },
++	})
++	Name(APS6, Package(){
++		Package(){0x0000FFFF, 0, 0, 34 },
++		Package(){0x0000FFFF, 1, 0, 35 },
++		Package(){0x0000FFFF, 2, 0, 32 },
++		Package(){0x0000FFFF, 3, 0, 33 },
++	})
+ 
+-Name(APR0, Package(){
+-	/* NB devices in APIC mode */
+-	/* Bus 0, Dev 0 - F16 Host Controller */
++	/* PCIe GPP 3 - not used */
++	Name(PS7, Package(){
++		Package(){0x0000FFFF, 0, INTD, 0 },
++		Package(){0x0000FFFF, 1, INTA, 0 },
++		Package(){0x0000FFFF, 2, INTB, 0 },
++		Package(){0x0000FFFF, 3, INTC, 0 },
++	})
++	Name(APS7, Package(){
++		Package(){0x0000FFFF, 0, 0, 39 },
++		Package(){0x0000FFFF, 1, 0, 36 },
++		Package(){0x0000FFFF, 2, 0, 37 },
++		Package(){0x0000FFFF, 3, 0, 38 },
++	})
+ 
+-	/* Bus 0, Dev 1, Func 0 - PCI Bridge for Internal Graphics(IGP) */
+-	/* Bus 0, Dev 1, Func 1 - HDMI Audio Controller */
+-	Package(){0x0001FFFF, 0, 0, 44 },
+-	Package(){0x0001FFFF, 1, 0, 45 },
+-
+-	/* Bus 0, Dev 2 - PCIe Bridges  */
+-	Package(){0x0002FFFF, 0, 0, 24 },
+-	Package(){0x0002FFFF, 1, 0, 25 },
+-	Package(){0x0002FFFF, 2, 0, 26 },
+-	Package(){0x0002FFFF, 3, 0, 27 },
+-
+-	/* SB devices in APIC mode */
+-	/* Bus 0, Dev 20 - F0:SMBus/ACPI,F2:HDAudio;F3:LPC;F7:SD */
+-	Package(){0x0014FFFF, 0, 0, 16 },
+-	Package(){0x0014FFFF, 1, 0, 17 },
+-	Package(){0x0014FFFF, 2, 0, 18 },
+-	Package(){0x0014FFFF, 3, 0, 19 },
+-
+-	/* Bus 0, Dev 12 Func 0 - USB: OHCI */
+-	/* Bus 0, Dev 12 Func 1 - USB: EHCI */
+-	Package(){0x0012FFFF, 0, 0, 18 },
+-	Package(){0x0012FFFF, 1, 0, 17 },
+-
+-	/* Bus 0, Dev 13 Func 0 - USB: OHCI */
+-	/* Bus 0, Dev 13 Func 1 - USB: EHCI */
+-	Package(){0x0013FFFF, 0, 0, 18 },
+-	Package(){0x0013FFFF, 1, 0, 17 },
+-
+-	/* Bus 0, Dev 16 Func 0 - USB: OHCI */
+-	/* Bus 0, Dev 16 Func 1 - USB: EHCI */
+-	Package(){0x0016FFFF, 0, 0, 18 },
+-	Package(){0x0016FFFF, 1, 0, 17 },
+-
+-	/* Bus 0, Dev 10 - USB: XHCI func 0, 1 */
+-	Package(){0x0010FFFF, 0, 0, 18 },
+-	Package(){0x0010FFFF, 1, 0, 17 },
+-
+-	/* Bus 0, Dev 11 - SATA controller */
+-	Package(){0x0011FFFF, 0, 0, 19 },
+-})
+-
+-/* GPP 0 - PCIe 4x slot */
+-Name(PS4, Package(){
+-	Package(){0x0000FFFF, 0, INTA, 0 },
+-	Package(){0x0000FFFF, 1, INTB, 0 },
+-	Package(){0x0000FFFF, 2, INTC, 0 },
+-	Package(){0x0000FFFF, 3, INTD, 0 },
+-})
+-Name(APS4, Package(){
+-	Package(){0x0000FFFF, 0, 0, 24 },
+-	Package(){0x0000FFFF, 1, 0, 25 },
+-	Package(){0x0000FFFF, 2, 0, 26 },
+-	Package(){0x0000FFFF, 3, 0, 27 },
+-})
+-
+-/* GPP 1 - not used */
+-Name(PS5, Package(){
+-	Package(){0x0000FFFF, 0, INTB, 0 },
+-	Package(){0x0000FFFF, 1, INTC, 0 },
+-	Package(){0x0000FFFF, 2, INTD, 0 },
+-	Package(){0x0000FFFF, 3, INTA, 0 },
+-})
+-Name(APS5, Package(){
+-	Package(){0x0000FFFF, 0, 0, 28 },
+-	Package(){0x0000FFFF, 1, 0, 29 },
+-	Package(){0x0000FFFF, 2, 0, 30 },
+-	Package(){0x0000FFFF, 3, 0, 31 },
+-})
+-
+-/* GPP 2 - not used */
+-Name(PS6, Package(){
+-	Package(){0x0000FFFF, 0, INTC, 0 },
+-	Package(){0x0000FFFF, 1, INTD, 0 },
+-	Package(){0x0000FFFF, 2, INTA, 0 },
+-	Package(){0x0000FFFF, 3, INTB, 0 },
+-})
+-Name(APS6, Package(){
+-	Package(){0x0000FFFF, 0, 0, 32 },
+-	Package(){0x0000FFFF, 1, 0, 33 },
+-	Package(){0x0000FFFF, 2, 0, 34 },
+-	Package(){0x0000FFFF, 3, 0, 35 },
+-})
+-
+-/* GPP 3 - not used */
+-Name(PS7, Package(){
+-	Package(){0x0000FFFF, 0, INTD, 0 },
+-	Package(){0x0000FFFF, 1, INTA, 0 },
+-	Package(){0x0000FFFF, 2, INTB, 0 },
+-	Package(){0x0000FFFF, 3, INTC, 0 },
+-})
+-Name(APS7, Package(){
+-	Package(){0x0000FFFF, 0, 0, 36 },
+-	Package(){0x0000FFFF, 1, 0, 37 },
+-	Package(){0x0000FFFF, 2, 0, 38 },
+-	Package(){0x0000FFFF, 3, 0, 39 },
+-})
+-
+-/* GPP 4 - Realtek GBE */
+-Name(PS8, Package(){
+-	Package(){0x0000FFFF, 0, INTB, 0 },
+-	Package(){0x0000FFFF, 1, INTC, 0 },
+-	Package(){0x0000FFFF, 2, INTD, 0 },
+-	Package(){0x0000FFFF, 3, INTA, 0 },
+-})
+-Name(APS8, Package(){
+-	Package(){0x0000FFFF, 0, 0, 40 },
+-	Package(){0x0000FFFF, 1, 0, 41 },
+-	Package(){0x0000FFFF, 2, 0, 42 },
+-	Package(){0x0000FFFF, 3, 0, 43 },
+-})
++	/* PCIe GPP 4 - Realtek RTL8168 */
++	Name(PS8, Package(){
++		/* Onboard Ethernet (Eth) 2:00.00 behind a 0:02.05 PCIe GPP - IRQ 4 */
++		Package(){0x0000FFFF, 0, INTB, 0 },
++		Package(){0x0000FFFF, 1, INTC, 0 },
++		Package(){0x0000FFFF, 2, INTD, 0 },
++		Package(){0x0000FFFF, 3, INTA, 0 },
++	})
++	Name(APS8, Package(){
++		/* Onboard Ethernet (Eth) 2:00.00 behind a 0:02.05 PCIe GPP - IRQ 4 */
++		Package(){0x0000FFFF, 0, 0, 41 },
++		Package(){0x0000FFFF, 1, 0, 42 },
++		Package(){0x0000FFFF, 2, 0, 43 },
++		Package(){0x0000FFFF, 3, 0, 40 },
++	})

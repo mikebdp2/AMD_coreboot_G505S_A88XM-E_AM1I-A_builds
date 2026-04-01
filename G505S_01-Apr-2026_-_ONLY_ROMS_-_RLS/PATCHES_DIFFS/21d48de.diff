@@ -1,0 +1,365 @@
+From 21d48de45780f7c2d1faa3455209a4a5deb30948 Mon Sep 17 00:00:00 2001
+From: Mike Banon <mikebdp2@gmail.com>
+Date: Mon, 07 Dec 2020 06:49:54 +0300
+Subject: [PATCH] asus/a88xm-e: properly program the IRQ tables
+
+IRQ programming should be outside the obsolete MP table generation,
+just like the proper way done for asus/am1i-a AMD fam16h - closest
+example for ASUS A88XM-E: all the fam15h boards have these "bad IRQs".
+OS like Linux still finds a way, but Kolibri can't see the IRQ table.
+
+With this change applied:
+* A88XM-E boots fine to Linux - no angry IRQ-related messages at dmesg;
+* KolibriOS sees 16 IRQs in a table and could successfully attach a
+driver to Realtek RTL8168 onboard Ethernet controller with an IRQ 7.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+Change-Id: I9a6ab9e24a828ebaffe87205a2ce0ebd811a935d
+---
+
+diff --git a/src/mainboard/asus/a88xm-e/mainboard.c b/src/mainboard/asus/a88xm-e/mainboard.c
+index 8003640..9cd5b44 100644
+--- a/src/mainboard/asus/a88xm-e/mainboard.c
++++ b/src/mainboard/asus/a88xm-e/mainboard.c
+@@ -5,26 +5,54 @@
+ #include <device/device.h>
+ #include <southbridge/amd/common/amd_pci_util.h>
+ 
+-static const u8 mainboard_picr_data[] = {
+-	0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x0A, 0xF1, 0x00, 0x00, 0x1F, 0x1F,
+-	0x1F, 0x1F, 0x09, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x00, 0x00, 0x00,
+-	0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x00, 0x00, 0x00, 0x00,
+-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x00,
+-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F, 0x00, 0x00, 0x00, 0x00,
+-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F, 0x1F, 0x1F,
+-};
+-static const u8 mainboard_intr_data[84] = {
+-	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F,
+-	0x1F, 0x1F, 0x09, 0x1F, 0x1F, 0x10, 0x1F, 0x10, 0x1F, 0x10, 0x1F, 0x00, 0x00, 0x00,
+-	0x00, 0x00, 0x00, 0x00, 0x05, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x00, 0x00, 0x00, 0x00,
+-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x11, 0x12, 0x11, 0x12, 0x11, 0x12, 0x00,
+-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x13, 0x00, 0x00, 0x00, 0x00,
+-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x11, 0x12, 0x13,
++#include <southbridge/amd/agesa/hudson/pci_devs.h>
++#include <southbridge/amd/agesa/hudson/amd_pci_int_defs.h>
++#include <northbridge/amd/agesa/family15tn/pci_devs.h>
++
++extern const u8 mainboard_picr_data[FCH_INT_TABLE_SIZE];
++extern const u8 mainboard_intr_data[FCH_INT_TABLE_SIZE];
++
++/*
++ * This table defines the index into the picr/intr_data
++ * tables for each device.  Any enabled device and slot
++ * that uses hardware interrupts should have an entry
++ * in this table to define its index into the FCH
++ * PCI_INTR register 0xC00/0xC01.  This index will define
++ * the interrupt that it should use.  Putting PIRQ_A into
++ * the PIN A index for a device will tell that device to
++ * use PIC IRQ picr_data[PIRQ_A] if it uses PIN A for its hardware INT.
++ */
++static const struct pirq_struct mainboard_pirq_data[] = {
++	/* {PCI_devfn,	{PIN A, PIN B, PIN C, PIN D} }, */
++	{IOMMU_DEVFN,	{PIRQ_A, PIRQ_B, PIRQ_C, PIRQ_D} },		/* IOMMU:			0:00.02 - IRQ 3 */
++	{GFX_DEVFN,	{PIRQ_A, PIRQ_NC, PIRQ_NC, PIRQ_NC} },		/* APU Integrated Graphics:	0:01.00 - IRQ 3 */
++	{ACTL_DEVFN,	{PIRQ_NC, PIRQ_B, PIRQ_NC, PIRQ_NC} },		/* APU HDMI Audio Controller:	0:01.01 - IRQ 4 */
++	{NB_PCIE_PORT1_DEVFN,	{PIRQ_A, PIRQ_B, PIRQ_C, PIRQ_D} },	/* PCIe GPP to dGPU 1:00.00:	0:02.00 - IRQ 3 */
++	{NB_PCIE_PORT3_DEVFN,	{PIRQ_A, PIRQ_B, PIRQ_C, PIRQ_D} },	/* PCIe GPP to 2:00.00:		0:04.00 - IRQ 3 */
++	{NB_PCIE_PORT4_DEVFN,	{PIRQ_B, PIRQ_C, PIRQ_D, PIRQ_A} },	/* PCIe GPP to 3:00.00:		0:05.00 - IRQ 4 */
++	{NB_PCIE_PORT5_DEVFN,	{PIRQ_B, PIRQ_C, PIRQ_D, PIRQ_A} },	/* PCIe GPP to Eth 4:00.00:	0:06.00 - IRQ 4 */
++	{XHCI_DEVFN,	{PIRQ_C, PIRQ_NC, PIRQ_NC, PIRQ_NC} },		/* USB XHCI:			0:10.00 - IRQ 5 */
++	{SATA_DEVFN,	{PIRQ_SATA, PIRQ_NC, PIRQ_NC, PIRQ_NC} },	/* SATA:			0:11.00 - IRQ 7 */
++	{OHCI1_DEVFN,	{PIRQ_OHCI1, PIRQ_NC, PIRQ_NC, PIRQ_NC} },	/* USB OHCI1:			0:12.00 - IRQ 5 */
++	{EHCI1_DEVFN,	{PIRQ_NC, PIRQ_EHCI1, PIRQ_NC, PIRQ_NC} },	/* USB EHCI1:			0:12.02 - IRQ 4 */
++	{OHCI2_DEVFN,	{PIRQ_OHCI2, PIRQ_NC, PIRQ_NC, PIRQ_NC} },	/* USB OHCI2:			0:13.00 - IRQ 5 */
++	{EHCI2_DEVFN,	{PIRQ_NC, PIRQ_EHCI2, PIRQ_NC, PIRQ_NC} },	/* USB EHCI2:			0:13.02 - IRQ 4 */
++	{OHCI3_DEVFN,	{PIRQ_OHCI3, PIRQ_NC, PIRQ_NC, PIRQ_NC} },	/* USB OHCI3:			0:16.00 - IRQ 5 */
++	{EHCI3_DEVFN,	{PIRQ_NC, PIRQ_EHCI3, PIRQ_NC, PIRQ_NC} },	/* USB EHCI3:			0:16.02 - IRQ 4 */
++	{HDA_DEVFN,	{PIRQ_HDA, PIRQ_NC, PIRQ_NC, PIRQ_NC} },	/* Southbridge HD Audio:	0:14.02 - IRQ 3 */
++	{SB_PCI_PORT_DEVFN,	{PIRQ_E, PIRQ_F, PIRQ_NC, PIRQ_NC} },	/* Southbridge PCI Port:	0:14.04 - IRQ 11 */
++	{OHCI4_DEVFN,	{PIRQ_NC, PIRQ_NC, PIRQ_OHCI4, PIRQ_NC} },	/* USB OHCI4:			0:14.05 - IRQ 5 */
++	{SB_PCIE_PORT1_DEVFN,	{PIRQ_B, PIRQ_C, PIRQ_D, PIRQ_A} },	/* Southbridge PCIe Port 1:	0:15.00 - IRQ 4 */
++	{SB_PCIE_PORT2_DEVFN,	{PIRQ_C, PIRQ_D, PIRQ_A, PIRQ_B} },	/* Southbridge PCIe Port 2:	0:15.01 - IRQ 5 */
++	{SB_PCIE_PORT3_DEVFN,	{PIRQ_D, PIRQ_A, PIRQ_B, PIRQ_C} },	/* Southbridge PCIe Port 3:	0:15.02 - IRQ 7 */
++	{SB_PCIE_PORT4_DEVFN,	{PIRQ_A, PIRQ_B, PIRQ_C, PIRQ_D} }	/* Southbridge PCIe Port 4:	0:15.03 - IRQ 3 */
+ };
+ 
+ /* PIRQ Setup */
+ static void pirq_setup(void)
+ {
++	pirq_data_ptr = mainboard_pirq_data;
++	pirq_data_size = ARRAY_SIZE(mainboard_pirq_data);
+ 	intr_data_ptr = mainboard_intr_data;
+ 	picr_data_ptr = mainboard_picr_data;
+ }
+diff --git a/src/mainboard/asus/a88xm-e/mptable.c b/src/mainboard/asus/a88xm-e/mptable.c
+index 4a966a9..d7a8543 100644
+--- a/src/mainboard/asus/a88xm-e/mptable.c
++++ b/src/mainboard/asus/a88xm-e/mptable.c
+@@ -1,10 +1,61 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ 
++#include <arch/io.h>
+ #include <arch/ioapic.h>
+ #include <arch/smp/mpspec.h>
++#include <stdint.h>
+ #include <string.h>
+ #include <southbridge/amd/common/amd_pci_util.h>
+ #include <southbridge/amd/agesa/hudson/hudson.h>
++#include <drivers/generic/ioapic/chip.h>
++
++/*
++ * Based on 51205_Bolton_FCH_BIOS_Dev_Guide.pdf. Acronyms:
++ *
++ * SCI - System Controller Interrupt,
++ * SMBUS - System Management Bus,
++ * ASF - Advanced Synchronization Facility,
++ * HDA - HD Audio,
++ * SD - SD Flash Controller,
++ * GEC - Gigabit Ethernet Controller,
++ * PerMon - Performance Monitor,
++ * IMC - Integrated Memory Controller,
++ * GPP - PCIe General Purpose Ports.
++ */
++
++const u8 mainboard_picr_data[FCH_INT_TABLE_SIZE] = {
++	/* INTA# - INTH# */
++	[0x00] = 0x03, 0x04, 0x05, 0x07, 0x0B, 0x0A, 0x1F, 0x1F,
++	/* Misc-nil,0,1,2, INTA-INTD from Serial irq */
++	[0x08] = 0xAA, 0xF1, 0x00, 0x00, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* SCI, SMBUS0, ASF, HDA, SD, GEC, PerMon */
++	[0x10] = 0x09, 0x1F, 0x1F, 0x03, 0x1F, 0x1F, 0x1F,
++	/* IMC INT0-INT5 */
++	[0x20] = 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* USB Devs: 18 INTA#,B#; 19 INTA#,B#; 22 INTA#,B#; 20 INTC# */
++	[0x30] = 0x05, 0x04, 0x05, 0x04, 0x05, 0x04, 0x05,
++	/* IDE, SATA */
++	[0x40] = 0x1F, 0x07,
++	/* GPP Int0-Int3 */
++	[0x50] = 0x1F, 0x1F, 0x1F, 0x1F
++};
++
++const u8 mainboard_intr_data[FCH_INT_TABLE_SIZE] = {
++	/* INTA# - INTH# */
++	[0x00] = 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x1F, 0x1F,
++	/* Misc-nil,0,1,2, INTA-INTD from Serial irq */
++	[0x08] = 0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* SCI, SMBUS0, ASF, HDA, SD, GEC, PerMon */
++	[0x10] = 0x09, 0x1F, 0x1F, 0x10, 0x1F, 0x1F, 0x1F,
++	/* IMC INT0-INT5 */
++	[0x20] = 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* USB Devs: 18 INTA#,B#; 19 INTA#,B#; 22 INTA#,B#; 20 INTC# */
++	[0x30] = 0x12, 0x11, 0x12, 0x11, 0x12, 0x11, 0x12,
++	/* IDE, SATA */
++	[0x40] = 0x1F, 0x13,
++	/* GPP Int0-Int3 */
++	[0x50] = 0x1F, 0x1F, 0x1F, 0x1F
++};
+ 
+ static void smp_add_mpc_entry(struct mp_config_table *mc, unsigned int length)
+ {
+@@ -29,96 +80,152 @@
+ 	struct mp_config_table *mc;
+ 	int bus_isa;
+ 
++	/* Initialize the MP_Table */
+ 	mc = (void *)(((char *)v) + SMP_FLOATING_TABLE_LEN);
+ 
+ 	mptable_init(mc);
+ 	memcpy(mc->mpc_oem, "AMD     ", 8);
+ 
++	/*
++	 * Type 0: Processor Entries:
++	 * LAPIC ID, LAPIC Version, CPU Flags:EN/BP,
++	 * CPU Signature (Stepping, Model, Family),
++	 * Feature Flags
++	 */
+ 	smp_write_processors(mc);
+ 
+-	//mptable_write_buses(mc, NULL, &bus_isa);
++	/*
++	 * Type 1: Bus Entries:
++	 * Bus ID, Bus Type
++	 */
++	// mptable_write_buses(mc, NULL, &bus_isa);
+ 	my_smp_write_bus(mc, 0, "PCI   ");
+ 	my_smp_write_bus(mc, 1, "PCI   ");
+ 	bus_isa = 0x02;
+ 	my_smp_write_bus(mc, bus_isa, "ISA   ");
+ 
+ 	/*
++	 * Type 2: I/O APICs:
+ 	 * By the time this function gets called, the IOAPIC registers
+ 	 * have been written so they can be read to get the correct
+ 	 * APIC ID and Version
+ 	 */
+ 	u8 ioapic_id = smp_write_ioapic_from_hw(mc, VIO_APIC_VADDR);
+ 
+-	/* I/O Ints:    Type    Polarity    Trigger     Bus ID   IRQ    APIC ID PIN# */
+-#define IO_LOCAL_INT(type, intr, apicid, pin)				\
+-	smp_write_lintsrc(mc, (type), MP_IRQ_TRIGGER_EDGE | MP_IRQ_POLARITY_HIGH,\
+-	bus_isa, (intr), (apicid), (pin))
++	/*
++	 * Type 3: I/O Interrupt Table Entries:
++	 * Int Type, Int Polarity, Int Level, Source Bus ID,
++	 * Source Bus IRQ, Dest APIC ID, Dest PIN#
++	 */
+ 	mptable_add_isa_interrupts(mc, bus_isa, ioapic_id, 0);
+ 
+ 	/* PCI interrupts are level triggered, and are
+ 	 * associated with a specific bus/device/function tuple.
+ 	 */
+-#define PCI_INT(bus, dev, int_sign, pin)				\
+-	smp_write_intsrc(mc, mp_INT, MP_IRQ_TRIGGER_LEVEL|MP_IRQ_POLARITY_LOW,\
+-	(bus), (((dev)<<2)|(int_sign)), ioapic_id, (pin))
++#define PCI_INT(bus, dev, fn, pin) \
++		smp_write_pci_intsrc(mc, mp_INT, bus, dev, fn, ioapic_id, pin)
+ 
+-	/* IOMMU */
+-	PCI_INT(0x0, 0x0, 0x0, 0x10);
+-	PCI_INT(0x0, 0x0, 0x1, 0x11);
+-	PCI_INT(0x0, 0x0, 0x2, 0x12);
+-	PCI_INT(0x0, 0x0, 0x3, 0x13);
++	/* IOMMU:			0:00.02 - IRQ 3 */
++	PCI_INT(0x0, 0x00, 0x0, intr_data_ptr[PIRQ_A]);
++	PCI_INT(0x0, 0x00, 0x1, intr_data_ptr[PIRQ_B]);
++	PCI_INT(0x0, 0x00, 0x2, intr_data_ptr[PIRQ_C]);
++	PCI_INT(0x0, 0x00, 0x3, intr_data_ptr[PIRQ_D]);
+ 
+-	/* Internal VGA */
+-	PCI_INT(0x0, 0x01, 0x0, intr_data_ptr[0x02]);
+-	PCI_INT(0x0, 0x01, 0x1, intr_data_ptr[0x03]);
++	/* APU Integrated Graphics:	0:01.00 - IRQ 3 */
++	PCI_INT(0x0, 0x01, 0x0, intr_data_ptr[PIRQ_A]);
++	/* APU HDMI Audio Controller:	0:01.01 - IRQ 4 */
++	PCI_INT(0x0, 0x01, 0x1, intr_data_ptr[PIRQ_B]);
+ 
+-	/* SMBUS */
+-	PCI_INT(0x0, 0x14, 0x0, 0x10);
++	/* PCIe GPP to dGPU 1:00.00:	0:02.00 - IRQ 3 */
++	PCI_INT(0x0, 0x02, 0x0, intr_data_ptr[PIRQ_A]);
++	PCI_INT(0x0, 0x02, 0x1, intr_data_ptr[PIRQ_B]);
++	PCI_INT(0x0, 0x02, 0x2, intr_data_ptr[PIRQ_C]);
++	PCI_INT(0x0, 0x02, 0x3, intr_data_ptr[PIRQ_D]);
++	/* PCIe GPP to 2:00.00:		0:04.00 - IRQ 3 */
++	PCI_INT(0x0, 0x04, 0x0, intr_data_ptr[PIRQ_A]);
++	PCI_INT(0x0, 0x04, 0x1, intr_data_ptr[PIRQ_B]);
++	PCI_INT(0x0, 0x04, 0x2, intr_data_ptr[PIRQ_C]);
++	PCI_INT(0x0, 0x04, 0x3, intr_data_ptr[PIRQ_D]);
++	/* PCIe GPP to 3:00.00:		0:05.00 - IRQ 4 */
++	PCI_INT(0x0, 0x05, 0x0, intr_data_ptr[PIRQ_B]);
++	PCI_INT(0x0, 0x05, 0x1, intr_data_ptr[PIRQ_C]);
++	PCI_INT(0x0, 0x05, 0x2, intr_data_ptr[PIRQ_D]);
++	PCI_INT(0x0, 0x05, 0x3, intr_data_ptr[PIRQ_A]);
++	/* PCIe GPP to Eth 4:00.00:	0:06.00 - IRQ 4 */
++	PCI_INT(0x0, 0x06, 0x0, intr_data_ptr[PIRQ_B]);
++	PCI_INT(0x0, 0x06, 0x1, intr_data_ptr[PIRQ_C]);
++	PCI_INT(0x0, 0x06, 0x2, intr_data_ptr[PIRQ_D]);
++	PCI_INT(0x0, 0x06, 0x3, intr_data_ptr[PIRQ_A]);
+ 
+-	/* HD Audio */
+-	PCI_INT(0x0, 0x14, 0x0, intr_data_ptr[0x13]);
+-
+-	/* USB */
+-	PCI_INT(0x0, 0x12, 0x0, intr_data_ptr[0x30]);
+-	PCI_INT(0x0, 0x12, 0x1, intr_data_ptr[0x31]);
+-	PCI_INT(0x0, 0x13, 0x0, intr_data_ptr[0x32]);
+-	PCI_INT(0x0, 0x13, 0x1, intr_data_ptr[0x33]);
+-	PCI_INT(0x0, 0x16, 0x0, intr_data_ptr[0x34]);
+-	PCI_INT(0x0, 0x16, 0x1, intr_data_ptr[0x35]);
+-	PCI_INT(0x0, 0x14, 0x2, intr_data_ptr[0x36]);
+-
+-	/* sata */
+-	PCI_INT(0x0, 0x11, 0x0, intr_data_ptr[0x40]);
+-	PCI_INT(0x0, 0x11, 0x0, intr_data_ptr[0x41]);
+-
+-	/* on board NIC & Slot PCIE.  */
++	/* USB XHCI:			0:10.00 - IRQ 5 */
++	PCI_INT(0x0, 0x10, 0x0, intr_data_ptr[PIRQ_C]);
++	/* SATA:			0:11.00 - IRQ 7 */
++	PCI_INT(0x0, 0x11, 0x0, intr_data_ptr[PIRQ_SATA]);
++	/* USB OHCI1:			0:12.00 - IRQ 5 */
++	PCI_INT(0x0, 0x12, 0x0, intr_data_ptr[PIRQ_OHCI1]);
++	/* USB EHCI1:			0:12.02 - IRQ 4 */
++	PCI_INT(0x0, 0x12, 0x2, intr_data_ptr[PIRQ_EHCI1]);
++	/* USB OHCI2:			0:13.00 - IRQ 5 */
++	PCI_INT(0x0, 0x13, 0x0, intr_data_ptr[PIRQ_OHCI2]);
++	/* USB EHCI2:			0:13.02 - IRQ 4 */
++	PCI_INT(0x0, 0x13, 0x2, intr_data_ptr[PIRQ_EHCI2]);
++	/* USB OHCI3:			0:16.00 - IRQ 5 */
++	PCI_INT(0x0, 0x16, 0x0, intr_data_ptr[PIRQ_OHCI3]);
++	/* USB EHCI3:			0:16.02 - IRQ 4 */
++	PCI_INT(0x0, 0x16, 0x2, intr_data_ptr[PIRQ_EHCI3]);
++	/* Southbridge HD Audio:	0:14.02 - IRQ 3 */
++	PCI_INT(0x0, 0x14, 0x2, intr_data_ptr[PIRQ_HDA]);
++	/* USB OHCI4:			0:14.05 - IRQ 5 */
++	PCI_INT(0x0, 0x14, 0x5, intr_data_ptr[PIRQ_C]);
+ 
+ 	/* PCI slots */
+ 	struct device *dev = pcidev_on_root(0x14, 4);
+ 	if (dev && dev->enabled) {
+ 		u8 bus_pci = dev->link_list->secondary;
+-		/* PCI_SLOT 0. */
+-		PCI_INT(bus_pci, 0x5, 0x0, 0x14);
+-		PCI_INT(bus_pci, 0x5, 0x1, 0x15);
+-		PCI_INT(bus_pci, 0x5, 0x2, 0x16);
+-		PCI_INT(bus_pci, 0x5, 0x3, 0x17);
++		/* PCI slot 0 */
++		PCI_INT(bus_pci, 0x5, 0x0, intr_data_ptr[PIRQ_E]);
++		PCI_INT(bus_pci, 0x5, 0x1, intr_data_ptr[PIRQ_F]);
+ 	}
+ 
+-	/* PCIe Lan */
+-	PCI_INT(0x0, 0x06, 0x0, 0x13);
++	/* Southbridge PCIe Port 1:	0:15.00 - IRQ 4 */
++	PCI_INT(0x0, 0x15, 0x0, intr_data_ptr[PIRQ_B]);
++	/* Southbridge PCIe Port 2:	0:15.01 - IRQ 5 */
++	PCI_INT(0x0, 0x15, 0x1, intr_data_ptr[PIRQ_C]);
++	/* Southbridge PCIe Port 3:	0:15.02 - IRQ 7 */
++	PCI_INT(0x0, 0x15, 0x2, intr_data_ptr[PIRQ_D]);
++	/* Southbridge PCIe Port 4:	0:15.03 - IRQ 3 */
++	PCI_INT(0x0, 0x15, 0x3, intr_data_ptr[PIRQ_A]);
+ 
+-	/* FCH PCIe PortA */
+-	PCI_INT(0x0, 0x15, 0x0, 0x10);
+-	/* FCH PCIe PortB */
+-	PCI_INT(0x0, 0x15, 0x1, 0x11);
+-	/* FCH PCIe PortC */
+-	PCI_INT(0x0, 0x15, 0x2, 0x12);
+-	/* FCH PCIe PortD */
+-	PCI_INT(0x0, 0x15, 0x3, 0x13);
++	/* Discrete Graphics (dGPU) 1:00.00 behind a 0:02.00 PCIe GPP - IRQ 3 */
++	PCI_INT(0x1, 0x0, 0x0, intr_data_ptr[PIRQ_A]);
++	PCI_INT(0x1, 0x0, 0x1, intr_data_ptr[PIRQ_B]);
++	PCI_INT(0x1, 0x0, 0x2, intr_data_ptr[PIRQ_C]);
++	PCI_INT(0x1, 0x0, 0x3, intr_data_ptr[PIRQ_D]);
+ 
+-	/* Local Ints:   Type   IRQ   APIC ID   PIN# */
+-	IO_LOCAL_INT(mp_ExtINT, 0, MP_APIC_ALL, 0x0);
+-	IO_LOCAL_INT(mp_NMI, 0, MP_APIC_ALL, 0x1);
++	/* 2:00.00 behind a 0:04.00 PCIe GPP - IRQ 3 */
++	PCI_INT(0x2, 0x0, 0x0, intr_data_ptr[PIRQ_A]);
++	PCI_INT(0x2, 0x0, 0x1, intr_data_ptr[PIRQ_B]);
++	PCI_INT(0x2, 0x0, 0x2, intr_data_ptr[PIRQ_C]);
++	PCI_INT(0x2, 0x0, 0x3, intr_data_ptr[PIRQ_D]);
++
++	/* 3:00.00 behind a 0:05.00 PCIe GPP - IRQ 4 */
++	PCI_INT(0x3, 0x0, 0x0, intr_data_ptr[PIRQ_B]);
++	PCI_INT(0x3, 0x0, 0x1, intr_data_ptr[PIRQ_C]);
++	PCI_INT(0x3, 0x0, 0x2, intr_data_ptr[PIRQ_D]);
++	PCI_INT(0x3, 0x0, 0x3, intr_data_ptr[PIRQ_A]);
++
++	/* Onboard Ethernet (Eth) 4:00.00 behind a 0:06.00 PCIe GPP - IRQ 4 */
++	PCI_INT(0x4, 0x0, 0x0, intr_data_ptr[PIRQ_B]);
++	PCI_INT(0x4, 0x0, 0x1, intr_data_ptr[PIRQ_C]);
++	PCI_INT(0x4, 0x0, 0x2, intr_data_ptr[PIRQ_D]);
++	PCI_INT(0x4, 0x0, 0x3, intr_data_ptr[PIRQ_A]);
++
++	/*Local Ints:	 Type	Polarity	Trigger	 Bus ID	 IRQ	APIC ID PIN# */
++#define IO_LOCAL_INT(type, intr, apicid, pin) \
++		smp_write_lintsrc(mc, (type), MP_IRQ_TRIGGER_EDGE | MP_IRQ_POLARITY_HIGH, bus_isa, (intr), (apicid), (pin))
++
++	IO_LOCAL_INT(mp_ExtINT, 0x0, MP_APIC_ALL, 0x0);
++	IO_LOCAL_INT(mp_NMI, 0x0, MP_APIC_ALL, 0x1);
+ 	/* There is no extension information... */
+ 
+ 	/* Compute the checksums */

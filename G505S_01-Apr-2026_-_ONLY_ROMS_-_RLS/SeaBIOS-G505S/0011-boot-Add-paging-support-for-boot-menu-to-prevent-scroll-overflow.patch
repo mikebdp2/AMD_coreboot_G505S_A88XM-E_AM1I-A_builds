@@ -1,0 +1,92 @@
+boot: Add paging support for boot menu to prevent scroll overflow
+
+When the boot menu contains too many entries, the previous implementation would
+print all entries sequentially, causing early entries to scroll off-screen. This
+made top-priority boot devices invisible to users, defeating the purpose of the
+boot menu. Users could not see how to choose the devices that scrolled away.
+
+This change implements two-page navigation with Enter key switching. If the
+quantity of boot menu entries exceeds BOOTMENU_PAGE_SIZE (18), entries are split
+across two pages with a page indicator in the header. All entries remain
+selectable by their keyboard key regardless of visible page. TPM menu ('m' key)
+remains accessible from any page. A new helper function display_menu_page()
+eliminates code duplication between initial display and refresh operations.
+
+This ensures all boot devices remain visible, supporting up to 35 boot menu
+entries (plus TPM) while keeping the menu readable on 80x25 text mode displays.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ src/boot.c | 33 ++++++++++++++++++++++++++++-----
+ 1 file changed, 28 insertions(+), 5 deletions(-)
+
+diff --git a/src/boot.c b/src/boot.c
+index 55308865..1535a093 100644
+--- a/src/boot.c
++++ b/src/boot.c
+@@ -895,12 +895,19 @@ boot_first_device(struct menu_entry *entries, int menu_count)
+     // (in bootorder priority, with fallback to next physical on failure)
+ }
+ 
++#define BOOTMENU_PAGE_SIZE 18
++
+ static void
+-print_bootmenu(struct menu_entry *entries, int menu_count)
++print_bootmenu_page(struct menu_entry *entries, int page_start, int page_end,
++                  int paging_enabled, int page_num)
+ {
+-    printf("\n\nSelect boot device:\n\n");
++    printf("\n\nSelect boot device");
++    if (paging_enabled)
++        printf(" - page %d/2 : // press ENTER to switch between the pages...\n\n", page_num);
++    else
++        printf(":\n\n");
+ 
+-    for (int i = 0; i < menu_count; i++) {
++    for (int i = page_start; i < page_end; i++) {
+         char desc[77];
+         if (entries[i].is_ramdisk) {
+             printf("%c. Ramdisk [%s]\n", keyboard_keys[i],
+@@ -1021,7 +1028,14 @@ interactive_bootmenu(void)
+         }
+     }
+ 
+-    print_bootmenu(entries, menu_count);
++    // Determine if paging is needed to accomodate our numerous entries.
++    int paging_enabled = (menu_count > BOOTMENU_PAGE_SIZE);
++    int page_num = 1;
++    int page_start = 0;
++    int page_end = (paging_enabled ? BOOTMENU_PAGE_SIZE : menu_count);
++
++    // Show initial menu display.
++    print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
+ 
+     // Get key press.  If the menu key is ESC, do not restart boot unless
+     // 1.5 seconds have passed.  Otherwise users (trained by years of
+@@ -1044,7 +1058,7 @@ interactive_bootmenu(void)
+             printf("\n");
+             tpm_menu();
+             printf("\n");
+-            print_bootmenu(entries, menu_count);
++            print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
+             continue;
+         }
+ 
+@@ -1054,6 +1068,15 @@ interactive_bootmenu(void)
+             return;
+         }
+ 
++        // Enter key: switch between the pages if paging is enabled.
++        if (key_scan == 28 && paging_enabled) {
++            page_num = 3 - page_num;  // Toggle: 1 --> 2, 2 --> 1
++            page_start = (page_num == 1) ? 0 : BOOTMENU_PAGE_SIZE;
++            page_end = (page_num == 1) ? BOOTMENU_PAGE_SIZE : menu_count;
++            print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
++            continue;
++        }
++
+         // Check key press against prepared menu list.
+         for (int i = 0; i < menu_count; i++) {
+             if (key_ascii == keyboard_keys[i]) {
+-- 
+2.53.0
