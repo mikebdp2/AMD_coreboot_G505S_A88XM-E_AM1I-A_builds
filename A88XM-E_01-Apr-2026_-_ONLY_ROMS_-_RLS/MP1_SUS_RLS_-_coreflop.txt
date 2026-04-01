@@ -1,0 +1,28 @@
+FMAP REGION: COREBOOT
+Name                           Offset     Type           Size   Comp
+cbfs_master_header             0x0        cbfs header        32 none
+fallback/romstage              0x80       stage          331920 none
+fallback/ramstage              0x511c0    stage          189304 LZMA (442392 decompressed)
+config                         0x7f600    raw              2951 LZMA (9020 decompressed)
+revision                       0x80240    raw               782 none
+build_info                     0x805c0    raw               103 none
+fallback/dsdt.aml              0x806c0    raw              6598 none
+cmos_layout.bin                0x82100    cmos_layout       744 none
+pci1002,990c.rom               0x82480    optionrom       61952 none
+fallback/postcar               0x91700    stage           38980 none
+img/coreinfo                   0x9b000    simple elf      43942 none
+fallback/payload               0xa5c40    simple elf      81825 none
+payload_config                 0xb9c80    raw              1623 none
+payload_revision               0xba380    raw               268 none
+img/tint                       0xba540    simple elf      37835 none
+floppyimg/flopbird.lzma        0xc3980    raw              2150 LZMA (1474560 decompressed)
+floppyimg/tatos.lzma           0xc4280    raw             61281 LZMA (1474560 decompressed)
+floppyimg/memtst64.lzma        0xd3280    raw             68210 LZMA (1474560 decompressed)
+floppyimg/fiwix.lzma           0xe3d80    raw            438606 LZMA (1474560 decompressed)
+floppyimg/snowdrop.lzma        0x14ef80   raw            185685 LZMA (1474560 decompressed)
+floppyimg/visopsys.lzma        0x17c580   raw            451284 LZMA (1474560 decompressed)
+floppyimg/michalos.lzma        0x1ea900   raw            626672 LZMA (1474560 decompressed)
+floppyimg/kolcrpt.lzma         0x283980   raw           1347366 LZMA (1474560 decompressed)
+floppyimg/flpnxrtl.lzma        0x3cc940   raw           2885146 LZMA (2949120 decompressed)
+(empty)                        0x68d000   null          9805732 none
+bootblock                      0xfe6fc0   bootblock       32768 none
