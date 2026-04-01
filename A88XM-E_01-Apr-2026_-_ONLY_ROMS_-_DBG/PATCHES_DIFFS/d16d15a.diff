@@ -1,0 +1,44 @@
+From d16d15a19ee5c6063fb635232fc73c985ccaec2e Mon Sep 17 00:00:00 2001
+From: Mike Banon <mike.banon@3mdeb.com>
+Date: Wed, 01 Sep 2021 18:55:05 +0300
+Subject: [PATCH] device/Kconfig: introduce the AMD_DGPU_WITHOUT_EEPROM symbols
+
+Some platforms like Lenovo G505S have the motherboard versions
+with the onboard AMD discrete GPU without its own dedicated EEPROM
+storage for VGA Option ROM. For such a discrete GPU to be usable
+with coreboot, the PCI init of GPUs has to be done differently.
+
+These AMD_DGPU_WITHOUT_EEPROM symbols can help for such cases.
+
+Change-Id: I424f93961c9d4a856dd6f5285417597cb117084d
+Signed-off-by: Mike Banon <mike.banon@3mdeb.com>
+---
+
+diff --git a/src/device/Kconfig b/src/device/Kconfig
+index 9ab2c79..9566fcc 100644
+--- a/src/device/Kconfig
++++ b/src/device/Kconfig
+@@ -65,6 +65,23 @@
+ 	  stage) support of `libgfxinit`. Usually this requires a list
+ 	  of ports to be probed for displays.
+ 
++config MAINBOARD_VERSION_HAS_AMD_DGPU_WITHOUT_EEPROM
++	def_bool n
++	help
++	  Selected by mainboards that have a version with the onboard AMD
++	  discrete GPU without its own EEPROM storage for VGA Option ROM.
++
++config AMD_DGPU_WITHOUT_EEPROM
++	def_bool n
++	prompt "AMD discrete GPU without EEPROM"
++	depends on MAINBOARD_VERSION_HAS_AMD_DGPU_WITHOUT_EEPROM
++	help
++	  Some platforms like Lenovo G505S have the motherboard versions
++	  with the onboard AMD discrete GPU without its own dedicated EEPROM
++	  storage for VGA Option ROM. For such a discrete GPU to be usable
++	  with coreboot, the PCI init of GPUs has to be done differently.
++	  Enable this option if your motherboard has such a discrete GPU.
++
+ choice
+ 	prompt "Graphics initialization"
+ 	default NO_GFX_INIT if VGA_ROM_RUN_DEFAULT && PAYLOAD_SEABIOS

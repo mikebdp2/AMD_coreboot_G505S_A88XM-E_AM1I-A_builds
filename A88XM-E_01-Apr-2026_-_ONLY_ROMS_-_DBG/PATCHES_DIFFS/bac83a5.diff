@@ -1,0 +1,101 @@
+From bac83a5e49d0e012911f9afc4b3ca8ab16143791 Mon Sep 17 00:00:00 2001
+From: Mike Banon <mikebdp2@gmail.com>
+Date: Thu, 26 Jun 2025 20:39:28 +0300
+Subject: [PATCH] device/pci: add support for AMD_DGPU_WITHOUT_EEPROM init and OpROM loading
+
+Some platforms like Lenovo G505S (AMD-no-PSP laptop with OSS AGESA)
+have the motherboard versions with the onboard AMD discrete GPU (DGPU)
+without its own dedicated EEPROM storage for VGA Option ROM. For such
+a discrete GPU to be usable with coreboot, the PCI init of both GPUs
+has to be done differently - in a way that this change is providing.
+
+If CONFIG_AMD_DGPU_WITHOUT_EEPROM is enabled: coreboot will try to
+initialize the discrete VGA of PCI_CLASS_DISPLAY_OTHER class and
+load VBIOS OpROM on it. Since the integrated GPU (IGPU) is working
+fine without ACPI VFCT (maybe at cost of power efficiency) unlike DGPU
+- we will not write ACPI VFCT for IGPU, because writing ACPI VFCT
+for both GPUs in a current way results in a graphics init failure!
+TODO: find a working way to write ACPI VFCT for both GPUs.
+
+Based on the original patches by Hans Jürgen Kitter <eforname@freemail.hu>.
+
+Change-Id: I68fbb77eea94731aabb5ef3e2c8cc62565fb9e1c
+Signed-off-by: Mike Banon <mike.banon@3mdeb.com>
+---
+
+diff --git a/src/device/pci_device.c b/src/device/pci_device.c
+index d03d88d..37f0bc0 100644
+--- a/src/device/pci_device.c
++++ b/src/device/pci_device.c
+@@ -878,7 +878,7 @@
+ 	 * ROMs when coming out of an S3 resume.
+ 	 */
+ 	if (!CONFIG(S3_VGA_ROM_RUN) && acpi_is_wakeup_s3() &&
+-		((dev->class >> 8) == PCI_CLASS_DISPLAY_VGA))
++		((dev->class >> 16) == PCI_BASE_CLASS_DISPLAY))
+ 		return 0;
+ 	if (CONFIG(ALWAYS_LOAD_OPROM))
+ 		return 1;
+@@ -903,7 +903,11 @@
+ 		return;
+ 
+ 	/* Only execute VGA ROMs. */
+-	if (((dev->class >> 8) != PCI_CLASS_DISPLAY_VGA))
++	if (((dev->class >> 8) != PCI_CLASS_DISPLAY_VGA) &&
++		((dev->class >> 8) != PCI_CLASS_DISPLAY_XGA) &&
++		((dev->class >> 8) != PCI_CLASS_DISPLAY_3D) &&
++		(!CONFIG(AMD_DGPU_WITHOUT_EEPROM) ||
++		((dev->class >> 8) != PCI_CLASS_DISPLAY_OTHER)))
+ 		return;
+ 
+ 	if (!should_load_oprom(dev))
+@@ -911,12 +915,24 @@
+ 	timestamp_add_now(TS_OPROM_INITIALIZE);
+ 
+ 	rom = pci_rom_probe(dev);
+-	if (rom == NULL)
++	if (rom == NULL) {
++		printk(BIOS_DEBUG, "PCI_CLASS_DISPLAY_%s%s%s%s ROM probe failed\n",
++			(dev->class >> 8) == PCI_CLASS_DISPLAY_VGA ? "VGA" : "",
++			(dev->class >> 8) == PCI_CLASS_DISPLAY_XGA ? "XGA" : "",
++			(dev->class >> 8) == PCI_CLASS_DISPLAY_3D ? "3D" : "",
++			(dev->class >> 8) == PCI_CLASS_DISPLAY_OTHER ? "OTHER" : "");
+ 		return;
++	}
+ 
+ 	ram = pci_rom_load(dev, rom);
+-	if (ram == NULL)
++	if (ram == NULL) {
++		printk(BIOS_DEBUG, "PCI_CLASS_DISPLAY_%s%s%s%s ROM load failed\n",
++			(dev->class >> 8) == PCI_CLASS_DISPLAY_VGA ? "VGA" : "",
++			(dev->class >> 8) == PCI_CLASS_DISPLAY_XGA ? "XGA" : "",
++			(dev->class >> 8) == PCI_CLASS_DISPLAY_3D ? "3D" : "",
++			(dev->class >> 8) == PCI_CLASS_DISPLAY_OTHER ? "OTHER" : "");
+ 		return;
++	}
+ 	timestamp_add_now(TS_OPROM_COPY_END);
+ 
+ 	if (!should_run_oprom(dev, rom))
+diff --git a/src/device/pci_rom.c b/src/device/pci_rom.c
+index 4eaa7ff..58afed6 100644
+--- a/src/device/pci_rom.c
++++ b/src/device/pci_rom.c
+@@ -238,6 +238,18 @@
+ 
+ 	/* AMD/ATI uses VFCT */
+ 	if (device->vendor == PCI_VID_ATI) {
++		/* If this platform has both IGPU and DGPU, and like IGPU that
++		 * DGPU does not have its own EEPROM for storing its AtomBIOS, -
++		 * then writing ACPI VFCT for both GPUs in a current way results
++		 * in a graphics initialization failure! Since IGPU is working
++		 * fine without ACPI VFCT (maybe at cost of power efficiency)
++		 * while DGPU is not, we will not write ACPI VFCT for IGPU.
++		 * TODO: find a working way to write ACPI VFCT for both GPUs.
++		 */
++		if (CONFIG(AMD_DGPU_WITHOUT_EEPROM) &&
++			((device->class >> 8) == PCI_CLASS_DISPLAY_VGA))
++			return current;
++
+ 		acpi_vfct_t *vfct;
+ 
+ 		current = ALIGN_UP(current, 8);

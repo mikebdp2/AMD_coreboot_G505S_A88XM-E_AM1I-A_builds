@@ -1,0 +1,74 @@
+block: Move IDMap from VARFSEG to VARLOW to save F-segment space
+
+The F-segment (64KB) is a precious, limited resource in SeaBIOS that must
+accommodate the BIOS runtime code, option ROMs (VGA, NIC, HBA), ACPI tables,
+SMBIOS tables, and PnP BIOS structures. The IDMap array stores drive pointers
+for floppy, hard disk, and CD-ROM types. At BUILD_MAX_EXTDRIVE=36, this array
+consumes 432 bytes (3*36*4). Moving it from VARFSEG to VARLOW frees up
+F-segment space for these critical consumers while maintaining correct
+functionality from all execution contexts (real mode, protected mode, SMM).
+
+This change replaces GET_GLOBAL() with GET_LOW() for IDMap access and adds the
+BUILD_MAX_EXTDRIVE include to block.h. The IDMap structure is now exposed
+externally via extern declaration in block.h, enabling other modules like
+ramdisk.c to access drive mappings directly.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ src/block.c | 6 +++---
+ src/block.h | 2 ++
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/block.c b/src/block.c
+index 1f600b85..22d3953d 100644
+--- a/src/block.c
++++ b/src/block.c
+@@ -5,7 +5,7 @@
+ //
+ // This file may be distributed under the terms of the GNU LGPLv3 license.
+ 
+-#include "biosvar.h" // GET_GLOBAL
++#include "biosvar.h" // GET_GLOBALFLAT
+ #include "block.h" // process_op
+ #include "hw/ata.h" // process_ata_op
+ #include "hw/ahci.h" // process_ahci_op
+@@ -30,7 +30,7 @@
+ 
+ u8 FloppyCount VARFSEG;
+ u8 CDCount;
+-struct drive_s *IDMap[3][BUILD_MAX_EXTDRIVE] VARFSEG;
++struct drive_s *IDMap[3][BUILD_MAX_EXTDRIVE] VARLOW;
+ u8 *bounce_buf_fl VARFSEG;
+ 
+ struct drive_s *
+@@ -38,7 +38,7 @@ getDrive(u8 exttype, u8 extdriveoffset)
+ {
+     if (extdriveoffset >= ARRAY_SIZE(IDMap[0]))
+         return NULL;
+-    return GET_GLOBAL(IDMap[exttype][extdriveoffset]);
++    return GET_LOW(IDMap[exttype][extdriveoffset]);
+ }
+ 
+ int getDriveId(u8 exttype, struct drive_s *drive)
+diff --git a/src/block.h b/src/block.h
+index 3af2d716..3dc3db66 100644
+--- a/src/block.h
++++ b/src/block.h
+@@ -2,6 +2,7 @@
+ #define __BLOCK_H
+ 
+ #include "types.h" // u32
++#include "config.h" // BUILD_MAX_EXTDRIVE
+ 
+ 
+ /****************************************************************
+@@ -108,6 +109,7 @@ struct drive_s {
+ 
+ // block.c
+ extern u8 FloppyCount, CDCount;
++extern struct drive_s *IDMap[3][BUILD_MAX_EXTDRIVE];
+ extern u8 *bounce_buf_fl;
+ struct drive_s *getDrive(u8 exttype, u8 extdriveoffset);
+ int getDriveId(u8 exttype, struct drive_s *drive);
+-- 
+2.53.0

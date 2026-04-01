@@ -1,0 +1,31 @@
+config: Raise MPTABLE and SMBIOS F-segment size limits from 600 to 768
+
+The current 600-byte limit for copying MPTABLE and SMBIOS tables to the
+F-segment is arbitrary and not aligned with power-of-two sizes. Some platforms
+require slightly larger tables (up to ~740 bytes), causing them to be truncated.
+Increase the limit to 768 bytes, a rounder value that provides ample headroom
+while remaining within the F-segment space. Adjust both limits for consistency.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ src/config.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/config.h b/src/config.h
+index 5700450a..7d98ed8b 100644
+--- a/src/config.h
++++ b/src/config.h
+@@ -22,9 +22,9 @@
+ // Largest supported externaly facing drive id
+ #define BUILD_MAX_EXTDRIVE 36
+ // Number of bytes the smbios may be and still live in the f-segment
+-#define BUILD_MAX_SMBIOS_FSEG     600
++#define BUILD_MAX_SMBIOS_FSEG     768
+ // Maximum number of bytes the mptable may be and still be copied to f-segment
+-#define BUILD_MAX_MPTABLE_FSEG    600
++#define BUILD_MAX_MPTABLE_FSEG    768
+ 
+ #define BUILD_MODEL_ID      0xFC
+ #define BUILD_SUBMODEL_ID   0x00
+--
+2.53.0

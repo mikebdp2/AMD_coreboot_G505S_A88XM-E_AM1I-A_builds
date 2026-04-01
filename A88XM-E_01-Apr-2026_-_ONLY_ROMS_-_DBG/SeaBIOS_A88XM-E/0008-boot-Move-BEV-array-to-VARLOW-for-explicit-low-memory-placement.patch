@@ -1,0 +1,32 @@
+boot: Move BEV array to VARLOW for explicit low-memory placement
+
+The BEV (Boot Execution Vector) array stores boot entries for floppy, hard disk,
+and CD-ROM types. At BUILD_MAX_EXTDRIVE=36, this array consumes 864 bytes
+(36*3*8). Moving it to VARLOW ensures explicit low-memory placement, making it
+accessible from all execution contexts (real mode, protected mode, SMM) while
+avoiding potential F-segment space consumption.
+
+This change removes the static qualifier from the BEV array and adds VARLOW,
+making it externally visible for access from other modules. This prepares the
+code for the upcoming significant improvement of its ramdisk emulation feature.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ src/boot.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/boot.c b/src/boot.c
+index 18e62a43..65092eba 100644
+--- a/src/boot.c
++++ b/src/boot.c
+@@ -798,7 +798,7 @@ struct bev_s {
+     int type;
+     u32 vector;
+ };
+-static struct bev_s BEV[BUILD_MAX_EXTDRIVE * 3];
++struct bev_s BEV[BUILD_MAX_EXTDRIVE * 3] VARLOW;
+ static int BEVCount;
+ static int HaveHDBoot, HaveFDBoot;
+ 
+-- 
+2.53.0

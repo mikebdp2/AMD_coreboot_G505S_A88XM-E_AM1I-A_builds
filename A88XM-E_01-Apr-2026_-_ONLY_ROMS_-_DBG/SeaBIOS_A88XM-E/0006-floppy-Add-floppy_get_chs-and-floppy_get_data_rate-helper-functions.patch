@@ -1,0 +1,63 @@
+floppy: Add floppy_get_chs() and floppy_get_data_rate() helper functions
+
+The FloppyInfo[] array contains authoritative CHS geometry and FDC data rate
+information for standard floppy types. Previously, this data was only accessible
+internally within floppy.c. These new helper functions will provide the safe
+read-only access to FloppyInfo[] - in particular, ramdisk.c will need this data
+for the upcoming significant improvement of its ramdisk emulation feature.
+
+This ensures a single source of truth for floppy geometry and data rates, allows
+future code to match SeaBIOS's native floppy behavior and prevents out-of-bounds
+access to the FloppyInfo[] array by validating the ftype parameter.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ src/hw/floppy.c | 19 +++++++++++++++++++
+ src/util.h      |  2 ++
+ 2 files changed, 21 insertions(+)
+
+diff --git a/src/hw/floppy.c b/src/hw/floppy.c
+index 9e6647d4..2668ac91 100644
+--- a/src/hw/floppy.c
++++ b/src/hw/floppy.c
+@@ -186,6 +186,25 @@ find_floppy_type(u32 size)
+     return -1;
+ }
+ 
++// Get CHS geometry for a floppy type.
++int
++floppy_get_chs(int ftype, struct chs_s *chs)
++{
++    if (ftype <= 0 || ftype >= ARRAY_SIZE(FloppyInfo))
++        return -1;
++    *chs = FloppyInfo[ftype].chs;
++    return 0;
++}
++
++// Get FDC data rate for a floppy type.
++int
++floppy_get_data_rate(int ftype)
++{
++    if (ftype <= 0 || ftype >= ARRAY_SIZE(FloppyInfo))
++        return -1;
++
++    return FloppyInfo[ftype].data_rate;
++}
+ 
+ /****************************************************************
+  * Low-level floppy IO
+diff --git a/src/util.h b/src/util.h
+index aff8e888..6679b0ae 100644
+--- a/src/util.h
++++ b/src/util.h
+@@ -169,6 +169,8 @@ extern struct floppy_ext_dbt_s diskette_param_table2;
+ void floppy_setup(void);
+ struct drive_s *init_floppy(int floppyid, int ftype);
+ int find_floppy_type(u32 size);
++int floppy_get_chs(int ftype, struct chs_s *chs);
++int floppy_get_data_rate(int ftype);
+ int floppy_process_op(struct disk_op_s *op);
+ void floppy_tick(void);
+ 
+-- 
+2.53.0

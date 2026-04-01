@@ -1,0 +1,40 @@
+From b69aa70c358807e0af4f0b9f55e76d3aa5652144 Mon Sep 17 00:00:00 2001
+From: Mike Banon <mike.banon@3mdeb.com>
+Date: Wed, 27 Oct 2021 16:52:24 +0300
+Subject: [PATCH] lenovo/g505s: enable the AMD_DGPU_WITHOUT_EEPROM discrete VGA adapter
+
+Enable the onboard AMD discrete VGA adapter (HD-8570M / R5-M230) on
+Lenovo G505S motherboard version LA-A091P without a dedicated EEPROM
+storage for VGA Option ROM. This change doesn't bring any downsides
+for G505S motherboard version LA-A092P without such an adapter:
+https://mail.coreboot.org/hyperkitty/list/coreboot@coreboot.org/message/KVXPFNXWHJWMONRM2ZI7MBKUICJYKP22/
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+Change-Id: I53eeef073c15bdcc2a2c76195edb1fa80b00f1a7
+---
+
+diff --git a/src/mainboard/lenovo/g505s/Kconfig b/src/mainboard/lenovo/g505s/Kconfig
+index dbf8b68..5576f6a 100644
+--- a/src/mainboard/lenovo/g505s/Kconfig
++++ b/src/mainboard/lenovo/g505s/Kconfig
+@@ -16,6 +16,7 @@
+ 	select HAVE_ACPI_TABLES
+ 	select BOARD_ROMSIZE_KB_4096
+ 	select GFXUMA
++	select MAINBOARD_VERSION_HAS_AMD_DGPU_WITHOUT_EEPROM
+ 	select NO_UART_ON_SUPERIO
+ 
+ config MAINBOARD_DIR
+diff --git a/src/mainboard/lenovo/g505s/devicetree.cb b/src/mainboard/lenovo/g505s/devicetree.cb
+index 4b4df36..5cb7366 100644
+--- a/src/mainboard/lenovo/g505s/devicetree.cb
++++ b/src/mainboard/lenovo/g505s/devicetree.cb
+@@ -15,7 +15,7 @@
+ 			device pci 0.2 on  end # IOMMU
+ 			device pci 1.0 on  end # Internal Graphics P2P bridge 0x99XX
+ 			device pci 1.1 on  end # Internal Multimedia
+-			device pci 2.0 off end
++			device pci 2.0 on  end # Discrete Graphics PCI bus 0x666X
+ 			device pci 3.0 off end
+ 			device pci 4.0 on  end # PCIE MINI0
+ 			device pci 5.0 on  end # PCIE MINI1

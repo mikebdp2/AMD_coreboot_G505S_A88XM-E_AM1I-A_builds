@@ -1,0 +1,27 @@
+config: Increase BUILD_MAX_EXTDRIVE from 16 to 36
+
+Raise the maximum number of drives per type (floppy, hard disk, CD-ROM) to 36.
+This provides additional headroom for systems with many drives, such as multiple
+hard disks, CD-ROMs, or virtual floppies. All arrays dimensioned by
+BUILD_MAX_EXTDRIVE expand accordingly, consuming negligible additional memory.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ src/config.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/config.h b/src/config.h
+index 16952eb7..5700450a 100644
+--- a/src/config.h
++++ b/src/config.h
+@@ -20,7 +20,7 @@
+ #define BUILD_MIN_HIGHTABLE (256*1024)
+ #define BUILD_MAX_HIGHTABLE (16*1024*1024)
+ // Largest supported externaly facing drive id
+-#define BUILD_MAX_EXTDRIVE 16
++#define BUILD_MAX_EXTDRIVE 36
+ // Number of bytes the smbios may be and still live in the f-segment
+ #define BUILD_MAX_SMBIOS_FSEG     600
+ // Maximum number of bytes the mptable may be and still be copied to f-segment
+-- 
+2.53.0

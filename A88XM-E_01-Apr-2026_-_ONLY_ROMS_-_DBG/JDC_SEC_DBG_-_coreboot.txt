@@ -1,0 +1,19 @@
+FMAP REGION: COREBOOT
+Name                           Offset     Type           Size   Comp
+cbfs_master_header             0x0        cbfs header        32 none
+fallback/romstage              0x80       stage          335280 none
+fallback/ramstage              0x51f00    stage          191617 LZMA (446432 decompressed)
+config                         0x80c40    raw              3026 LZMA (9312 decompressed)
+revision                       0x818c0    raw               782 none
+build_info                     0x81c40    raw               103 none
+fallback/dsdt.aml              0x81d40    raw              6598 none
+cmos_layout.bin                0x83780    cmos_layout       744 none
+pci1002,990c.rom               0x83b00    optionrom       61952 none
+fallback/postcar               0x92d80    stage           39908 none
+img/coreinfo                   0x9ca00    simple elf      43942 none
+fallback/payload               0xa7640    simple elf      81825 none
+payload_config                 0xbb680    raw              1623 none
+payload_revision               0xbbd80    raw               268 none
+img/tint                       0xbbf40    simple elf      37835 none
+(empty)                        0xc5380    null         15862820 none
+bootblock                      0xfe5fc0   bootblock       36864 none

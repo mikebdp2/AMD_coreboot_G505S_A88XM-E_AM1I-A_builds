@@ -1,0 +1,34 @@
+From 9ded40df9710b5dd2c9e45116c42352a4c944c29 Mon Sep 17 00:00:00 2001
+From: Mike Banon <mikebdp2@gmail.com>
+Date: Thu, 04 Jan 2024 01:15:17 +0300
+Subject: [PATCH] src/southbridge/amd/agesa/hudson: avoid the apu/amdfw wasting CBFS space
+
+apu/amdfw section at CBFS is often empty for these AMD opensource AGESA
+platforms: they do not contain a PSP "backdoor" so do not need to store
+the "AMDFW" inside CBFS, and XHCI/IMC/GEC binary blobs are rarely used.
+Therefore, if XHCI/IMC/GEC binary blobs are not specified, apu/amdfw
+section should be excluded to avoid wasting around 200 KB of CBFS.
+
+Change-Id: I8c5865d83294ee59bf92b1611b9365b2c2d23539
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+
+diff --git a/src/southbridge/amd/agesa/hudson/Makefile.inc b/src/southbridge/amd/agesa/hudson/Makefile.inc
+index b8eb5b9..94b0620 100644
+--- a/src/southbridge/amd/agesa/hudson/Makefile.inc
++++ b/src/southbridge/amd/agesa/hudson/Makefile.inc
+@@ -60,6 +60,8 @@
+ OPT_HUDSON_IMC_FWM_FILE=$(call add_opt_prefix, $(CONFIG_HUDSON_IMC_FWM_FILE), --imc)
+ OPT_HUDSON_GEC_FWM_FILE=$(call add_opt_prefix, $(CONFIG_HUDSON_GEC_FWM_FILE), --gec)
+ 
++ifneq ($(CONFIG_HUDSON_XHCI_FWM_FILE)$(CONFIG_HUDSON_IMC_FWM_FILE)$(CONFIG_HUDSON_GEC_FWM_FILE),)
++
+ $(obj)/amdfw.rom:	$(call strip_quotes, $(CONFIG_HUDSON_XHCI_FWM_FILE)) \
+ 			$(call strip_quotes, $(CONFIG_HUDSON_IMC_FWM_FILE)) \
+ 			$(call strip_quotes, $(CONFIG_HUDSON_GEC_FWM_FILE)) \
+@@ -77,3 +79,5 @@
+ apu/amdfw-file := $(obj)/amdfw.rom
+ apu/amdfw-position := $(HUDSON_FWM_POSITION)
+ apu/amdfw-type := raw
++
++endif
