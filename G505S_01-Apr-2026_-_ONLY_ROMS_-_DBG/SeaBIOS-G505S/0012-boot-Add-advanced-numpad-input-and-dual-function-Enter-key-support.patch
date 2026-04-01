@@ -1,0 +1,308 @@
+boot: Add advanced numpad input and dual-function Enter key support
+
+Implement full numeric keypad support with distinct modes based on list size.
+For ten or fewer entries, single digits trigger immediate boot, mapping zero to
+the tenth slot. Larger lists enable multi-digit entry (up to 35) with real-time
+visual feedback showing the selected index and corresponding keyboard key hint.
+
+Enhance navigation by allowing rapid scrolling through options using the Numpad
+Plus and Minus keys to increment or decrement the selection number instantly.
+The Enter key adapts dynamically to context, toggling pages when idle or
+confirming the pending numpad selection, while Numpad Star opens the TPM menu.
+
+Refresh the on-screen help text to explicitly advertise slash and backslash as
+menu triggers alongside detailed numpad usage instructions. The display now
+dynamically updates to show page numbers, current selection hints, and clear
+prompts for entering or confirming choices, ensuring users always see exactly
+how to interact with the expanded boot list regardless of device count.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ src/boot.c | 198 +++++++++++++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 183 insertions(+), 15 deletions(-)
+
+diff --git a/src/boot.c b/src/boot.c
+index 1535a093..0a4324cc 100644
+--- a/src/boot.c
++++ b/src/boot.c
+@@ -753,6 +753,11 @@ static const char keyboard_keys[] = {
+        'z','x','c','v','b','n' /* 'm' = TPM */
+ };
+ 
++static const int numpad_scancodes[] = {
++    82, 79, 80, 81, 75, 76, 77, 71, 72, 73
++  /* 0,  1,  2,  3,  4,  5,  6,  7,  8,  9 */
++};
++
+ // Prepare merged boot menu with ramdisks and BootList entries
+ // (physical devices and secondary payloads), sorted by priority.
+ // Populates entries[] array and returns count via pointer.
+@@ -902,10 +907,13 @@ print_bootmenu_page(struct menu_entry *entries, int page_start, int page_end,
+                   int paging_enabled, int page_num)
+ {
+     printf("\n\nSelect boot device");
+-    if (paging_enabled)
+-        printf(" - page %d/2 : // press ENTER to switch between the pages...\n\n", page_num);
+-    else
++    if (paging_enabled) {
++        printf(" - page %d/2 : // press ENTER after your numpad input if any -\n", page_num);
++        printf("                  ");
++        printf( "              // - or to switch between the pages...\n\n");
++    } else {
+         printf(":\n\n");
++    }
+ 
+     for (int i = page_start; i < page_end; i++) {
+         char desc[77];
+@@ -920,7 +928,7 @@ print_bootmenu_page(struct menu_entry *entries, int page_start, int page_end,
+     }
+ 
+     if (tpm_can_show_menu())
+-        printf("\nm. TPM Configuration\n");
++        printf("\nm. TPM Configuration ( *. on numpad )\n");
+ 
+     printf("\n> ");
+ }
+@@ -936,7 +944,19 @@ static int
+ is_menukey(int key_scan, int menukey)
+ {
+     return key_scan == menukey ||
+-           key_scan ==   1;    // Escape key
++           key_scan ==   1 ||  // Escape key
++           key_scan ==  43 ||  // '\' on keyboard
++           key_scan ==  53 ||  // '/' on keyboard
++           key_scan ==  98;    // '/' on numpad
++}
++
++static int
++get_numpad_number(int key_scan)
++{
++    for (int i = 0; i < ARRAY_SIZE(numpad_scancodes); i++)
++        if (key_scan == numpad_scancodes[i])
++            return i;
++    return -1;
+ }
+ 
+ // Show IPL option menu.
+@@ -988,9 +1008,11 @@ interactive_bootmenu(void)
+     int keystroke;
+     int key_ascii;
+     int key_scan;
++    int numpad_choice = 0;
++    int numpad_number;
+     if (menutime >= 0) {
+         char *bootmsg = romfile_loadfile("etc/boot-menu-message", NULL);
+-        printf("%s", bootmsg ?: "\nPress ESC for boot menu.");
++        printf("%s", bootmsg ?: "\nPress ESC or \\ / slash for boot menu.");
+         free(bootmsg);
+ 
+         enable_bootsplash();
+@@ -1008,7 +1030,9 @@ interactive_bootmenu(void)
+         }
+ 
+         if (! is_menukey(key_scan, menukey)) {
+-            if (tpm_can_show_menu() && key_ascii == 'm') {
++            // Supports 'm' keyboard key and '*' numpad key.
++            if (tpm_can_show_menu() &&  // '*' on numpad
++                (key_ascii == 'm' || key_scan == 55)) {
+                 clear_keyboard_buffer();
+                 printf("\n");
+                 tpm_menu();
+@@ -1023,11 +1047,25 @@ interactive_bootmenu(void)
+                         return;
+                     }
+                 }
++                if (menu_count <= 10) {
++                    numpad_number = get_numpad_number(key_scan);
++                    if (numpad_number >= 0) {
++                        numpad_choice = (numpad_number == 0) ? 10 : numpad_number;
++                        if (numpad_choice <= menu_count) {
++                            printf("\n\n> %c\n", keyboard_keys[numpad_choice - 1]);
++                            apply_boot_selection(numpad_choice - 1, entries, menu_count);
++                            free_ramdisk_bootorder_list();
++                            return;
++                        }
++                    }
++                }
+                 printf("\n\nNo key matched - fall through to show menu.");
+             }
+         }
+     }
+ 
++    numpad_choice = 0;
++
+     // Determine if paging is needed to accomodate our numerous entries.
+     int paging_enabled = (menu_count > BOOTMENU_PAGE_SIZE);
+     int page_num = 1;
+@@ -1053,12 +1091,15 @@ interactive_bootmenu(void)
+         if (keystroke < 0) // timeout
+             continue;
+ 
+-        if (tpm_can_show_menu() && key_ascii == 't') {
++        // Supports 'm' keyboard key and '*' numpad key.
++        if (tpm_can_show_menu() &&  // '*' on numpad
++            (key_ascii == 'm' || key_scan == 55)) {
+             clear_keyboard_buffer();
+             printf("\n");
+             tpm_menu();
+             printf("\n");
+             print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
++            numpad_choice = 0;
+             continue;
+         }
+ 
+@@ -1068,18 +1109,145 @@ interactive_bootmenu(void)
+             return;
+         }
+ 
+-        // Enter key: switch between the pages if paging is enabled.
+-        if (key_scan == 28 && paging_enabled) {
+-            page_num = 3 - page_num;  // Toggle: 1 --> 2, 2 --> 1
+-            page_start = (page_num == 1) ? 0 : BOOTMENU_PAGE_SIZE;
+-            page_end = (page_num == 1) ? BOOTMENU_PAGE_SIZE : menu_count;
+-            print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
++        // Enter key: switch between the pages if paging is enabled,
++        // or confirm the numpad choice if more than 10 menu entries.
++        if (key_scan == 28 || key_scan == 96) {
++            if (paging_enabled && numpad_choice == 0) {
++                page_num = 3 - page_num;  // Toggle: 1 --> 2, 2 --> 1
++                page_start = (page_num == 1) ? 0 : BOOTMENU_PAGE_SIZE;
++                page_end   = (page_num == 1) ? BOOTMENU_PAGE_SIZE : menu_count;
++                print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
++            } else {
++                if (numpad_choice) {
++                    // Numpad choice confirmed.
++                    if (numpad_choice <= menu_count) {
++                        // Choice is within the acceptable range.
++                        if (numpad_choice < 10)
++                            printf("\n");
++                        else
++                            printf("(%c)\n", keyboard_keys[numpad_choice - 1]);
++                        apply_boot_selection(numpad_choice - 1, entries, menu_count);
++                        free_ramdisk_bootorder_list();
++                        return;
++                    } else {
++                        // Invalid choice - clear and continue.
++                        if (numpad_choice < 10)
++                            printf("\b \b");
++                        else
++                            printf("\b\b     \b\b\b\b\b");
++                        numpad_choice = 0;
++                    }
++                }
++            }
++            continue;
++        }
++
++        // Numpad digit input (0-9).
++        numpad_number = get_numpad_number(key_scan);
++        if (numpad_number >= 0) {
++            if (menu_count <= 10) {
++                // Single-digit mode (<=10 entries): boot immediately.
++                numpad_choice = (numpad_number == 0) ? 10 : numpad_number;
++                if (numpad_choice <= menu_count) {
++                    printf("%c\n", keyboard_keys[numpad_choice - 1]);
++                    apply_boot_selection(numpad_choice - 1, entries, menu_count);
++                    free_ramdisk_bootorder_list();
++                    return;
++                } else {
++                    numpad_choice = 0;
++                }
++            } else {
++                if (numpad_choice < 10) {
++                    numpad_choice = numpad_choice * 10 + numpad_number;
++                    if (numpad_choice == 0) {
++                        numpad_choice = 10;
++                        printf("1");
++                        // Remaining "0" and "(*)" decoding - will be printed by the code below.
++                    }
++                    if (numpad_choice < 10) {
++                        // Single digit: just print.
++                        printf("%d", numpad_choice);
++                    } else {
++                        // Double digits: print both digits and "(*)" decoding.
++                        if (numpad_choice <= menu_count)
++                            printf("%d(%c)\b\b\b", numpad_number, keyboard_keys[numpad_choice - 1]);
++                        else
++                            printf("%d(?)\b\b\b",  numpad_number);
++                    }
++                }
++            }
++            continue;
++        }
++
++        // Backspace handling ('<-' 14, 'Delete' 111, numpad '.Del' 83).
++        if ((key_scan == 14 || key_scan == 111 || key_scan == 83)
++            && numpad_choice > 0) {
++            numpad_choice = numpad_choice / 10;
++            // Double digits to single digit: remove "(*)" decoding.
++            if (numpad_choice >= 1)
++                printf("\b    \b\b\b\b");
++            else
++                printf("\b \b");
++            continue;
++        }
++
++        // Numpad '-' key: decrement choice (if choice > 0).
++        if (key_scan == 74 && numpad_choice > 0) {
++            numpad_choice--;
++            if (numpad_choice == 0) {
++                // Gone to zero - remove the input.
++                printf("\b \b");
++            } else {
++                if (numpad_choice >= 10) {
++                    // Double digits: update both digits and "(*)" decoding.
++                    if (numpad_choice > menu_count)
++                        numpad_choice = menu_count;
++                    printf("\b\b%d(%c)\b\b\b", numpad_choice, keyboard_keys[numpad_choice - 1]);
++                } else {
++                    if (numpad_choice == 9) {
++                        // 10 --> 9 transition: clear "10" and decode, print "9".
++                        printf("\b    \b\b\b\b\b9");
++                    } else {
++                        // Single digit: just overwrite.
++                        printf("\b%d", numpad_choice);
++                    }
++                }
++            }
++            continue;
++        }
++
++        // Numpad '+' key: increment choice (if choice < max).
++        if (key_scan == 78 && numpad_choice < menu_count) {
++            numpad_choice++;
++            if (numpad_choice == 1) {
++                // No input yet - start at 1.
++                printf("1");
++            } else {
++                if (numpad_choice >= 10) {
++                    if (numpad_choice == 10) {
++                        // 9 --> 10 transition: backspace over single digit, print "10".
++                        printf("\b10(0)\b\b\b");
++                    } else {
++                        // Double digits: update both digits and "(*)" decoding.
++                        printf("\b\b%d(%c)\b\b\b", numpad_choice, keyboard_keys[numpad_choice - 1]);
++                    }
++                } else {
++                    // Single digit: just overwrite.
++                    printf("\b%d", numpad_choice);
++                }
++            }
+             continue;
+         }
+ 
+-        // Check key press against prepared menu list.
++        // Check keyboard key press against prepared menu list.
+         for (int i = 0; i < menu_count; i++) {
+             if (key_ascii == keyboard_keys[i]) {
++                if (numpad_choice > 0) {
++                    if (numpad_choice < 10)
++                        printf("\b");
++                    else
++                        printf("\b    \b\b\b\b\b");
++                }
+                 printf("%c\n", keyboard_keys[i]);
+                 apply_boot_selection(i, entries, menu_count);
+                 free_ramdisk_bootorder_list();
+-- 
+2.53.0

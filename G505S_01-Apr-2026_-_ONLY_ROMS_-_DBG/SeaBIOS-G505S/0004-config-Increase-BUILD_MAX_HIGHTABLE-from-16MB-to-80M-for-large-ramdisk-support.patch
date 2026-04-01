@@ -1,0 +1,34 @@
+config: Increase BUILD_MAX_HIGHTABLE from 16MB to 80MB for large ramdisk support
+
+The BUILD_MAX_HIGHTABLE constant defines the maximum space that can be reserved
+in high-memory (ZoneHigh) for runtime tables and buffers. The current 16MB limit
+is sufficient for standard SeaBIOS operation but is inadequate to support
+custom-sized ramdisks as large as 63MB, the code for which is being added.
+
+A single ramdisk can be as large as 63 MB (2 heads * 1024 cylinders * 63 sectors
+per track * 512 bytes sector size). The ramdisk shared buffer must be allocated
+in ZoneHigh to persist across the boot process. Only one ramdisk is loaded at a
+time, its buffer must accommodate the full image. Raising BUILD_MAX_HIGHTABLE to
+80MB provides headroom for a 63MB ramdisk plus additional runtime allocations,
+while remaining well within typical system RAM limits on modern hardware.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ src/config.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/config.h b/src/config.h
+index 5700450a..91370684 100644
+--- a/src/config.h
++++ b/src/config.h
+@@ -18,7 +18,7 @@
+ #define BUILD_MAX_E820 128
+ // Space to reserve in high-memory for tables
+ #define BUILD_MIN_HIGHTABLE (256*1024)
+-#define BUILD_MAX_HIGHTABLE (16*1024*1024)
++#define BUILD_MAX_HIGHTABLE (80*1024*1024)
+ // Largest supported externaly facing drive id
+ #define BUILD_MAX_EXTDRIVE 36
+ // Number of bytes the smbios may be and still live in the f-segment
+-- 
+2.53.0

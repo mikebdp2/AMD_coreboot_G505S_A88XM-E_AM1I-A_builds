@@ -1,0 +1,76 @@
+From 9e5bdc9450a580fbec76293ed6ee30dcd52e07aa Mon Sep 17 00:00:00 2001
+From: Mike Banon <mikebdp2@gmail.com>
+Date: Fri, 20 Mar 2026 17:24:15 +0300
+Subject: [PATCH] mainboard: set SeaBIOS ROM size to 256KB for G505S, A88XM-E and AM1I-A
+
+Force CONFIG_ROM_SIZE=256 in the SeaBIOS configuration for Lenovo G505S,
+ASUS A88XM-E and ASUS AM1I-A boards. This overrides the default
+automatic ROM size selection, ensuring that SeaBIOS always gets built
+as a 256KB ROM. The larger fixed size provides sufficient F-segment
+space for systems with many boot entries by allowing BUILD_MIN_BIOSTABLE
+to be increased accordingly. Also, add a PAYLOAD_CONFIGFILE entry in
+each board's Kconfig to point to the board-specific configuration file.
+
+Change-Id: Ia1f0615139f5a493ce2298d19a30314df595cf19
+---
+
+diff --git a/src/mainboard/asus/a88xm-e/Kconfig b/src/mainboard/asus/a88xm-e/Kconfig
+index 56dddeb..a1d2e4c 100644
+--- a/src/mainboard/asus/a88xm-e/Kconfig
++++ b/src/mainboard/asus/a88xm-e/Kconfig
+@@ -54,4 +54,8 @@
+ 	bool
+ 	default n
+ 
++config PAYLOAD_CONFIGFILE
++	string
++	default "$(top)/src/mainboard/$(MAINBOARDDIR)/config_seabios" if PAYLOAD_SEABIOS
++
+ endif # BOARD_ASUS_A88XM_E
+diff --git a/src/mainboard/asus/a88xm-e/config_seabios b/src/mainboard/asus/a88xm-e/config_seabios
+new file mode 100644
+index 0000000..4a53515
+--- /dev/null
++++ b/src/mainboard/asus/a88xm-e/config_seabios
+@@ -0,0 +1,5 @@
++###
++### SeaBIOS custom configuration for ASUS A88XM-E
++###
++CONFIG_ROM_SIZE=256
++#
+diff --git a/src/mainboard/asus/am1i-a/Kconfig b/src/mainboard/asus/am1i-a/Kconfig
+index 9a4c8e3..7c2662f 100644
+--- a/src/mainboard/asus/am1i-a/Kconfig
++++ b/src/mainboard/asus/am1i-a/Kconfig
+@@ -50,4 +50,8 @@
+ 	bool
+ 	default n
+ 
++config PAYLOAD_CONFIGFILE
++	string
++	default "$(top)/src/mainboard/$(MAINBOARDDIR)/config_seabios" if PAYLOAD_SEABIOS
++
+ endif # BOARD_ASUS_AM1I_A
+diff --git a/src/mainboard/asus/am1i-a/config_seabios b/src/mainboard/asus/am1i-a/config_seabios
+new file mode 100644
+index 0000000..b8530a2
+--- /dev/null
++++ b/src/mainboard/asus/am1i-a/config_seabios
+@@ -0,0 +1,5 @@
++###
++### SeaBIOS custom configuration for ASUS AM1I-A
++###
++CONFIG_ROM_SIZE=256
++#
+diff --git a/src/mainboard/lenovo/g505s/config_seabios b/src/mainboard/lenovo/g505s/config_seabios
+index 1959fa3..eb4ba97 100644
+--- a/src/mainboard/lenovo/g505s/config_seabios
++++ b/src/mainboard/lenovo/g505s/config_seabios
+@@ -1,6 +1,7 @@
+ ###
+ ### SeaBIOS custom configuration for Lenovo G505S
+ ###
++CONFIG_ROM_SIZE=256
+ # CONFIG_MEGASAS is not set
+ # CONFIG_NVME is not set
+ # CONFIG_TCGBIOS is not set

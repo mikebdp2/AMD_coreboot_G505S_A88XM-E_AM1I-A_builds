@@ -1,0 +1,2195 @@
+From ca60998eefc15ad94fac1993eb34410ab188dad8 Mon Sep 17 00:00:00 2001
+From: Mike Banon <mikebdp2@gmail.com>
+Date: Fri, 20 Mar 2026 04:16:58 +0300
+Subject: [PATCH] payloads/seabios: Apply patches for multiple large ramdisks, 2-page menu, numpad
+
+Apply a comprehensive series of patches to SeaBIOS that significantly
+enhance boot capabilities, user interaction, and hardware support.
+These changes are particularly useful for coreboot users who want to:
+
+- Boot from multiple floppy/ramdisk images (up to 63MB!) stored in CBFS
+  without re-flashing ROM - to use multiple OS like KolibriOS, FreeDOS,
+  MichalOS, Visopsys, Snowdrop, Fiwix and my Floppinux-AMD64net distro:
+      https://github.com/mikebdp2/floppinux-amd64net
+- Accommodate platforms with larger SMBIOS/MPTABLE sizes (e.g., Lenovo
+  G505S, ASUS A88XM-E, ASUS AM1I-A) and optimize the F-segment usage.
+- Navigate large boot lists efficiently using a USB numpad with editing,
+  "scrolling" (by a plus or minus keys) and input confirmation features.
+
+The patches are applied in numerical order after checkout and before
+configuration to ensure a consistent build.
+
+Patches included:
+ 1. scripts: Increase BUILD_MIN_BIOSTABLE for auto-sized and 128KB ROMs
+ 2. config: Increase BUILD_MAX_EXTDRIVE from 16 to 36
+ 3. config: Raise MPTABLE and SMBIOS F-segment size limits from 600 to 768
+ 4. config: Increase BUILD_MAX_HIGHTABLE from 16MB to 80MB for large ramdisk support
+ 5. block: Move IDMap from VARFSEG to VARLOW to save F-segment space
+ 6. floppy: Add floppy_get_chs() and floppy_get_data_rate() helper functions
+ 7. boot: Replace hardcoded BEV array size with BUILD_MAX_EXTDRIVE * 3
+ 8. boot: Move BEV array to VARLOW for explicit low-memory placement
+ 9. boot, ramdisk: Multiple ramdisk precise support with F-segment conservation
+10. boot: Reorganize boot menu keyboard layout to QWERTY order with TPM on m key
+11. boot: Add paging support for boot menu to prevent scroll overflow
+12. boot: Add advanced numpad input and dual-function Enter key support
+13. boot: Increase menu timeout and ESC delay for slow-display compatibility
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+Change-Id: Iff9c2760376ac1bff18c9cfcf9e8a8eef0cbeba3
+---
+
+diff --git a/payloads/external/SeaBIOS/0001-scripts-Increase-BUILD_MIN_BIOSTABLE-for-auto-sized-and-128KB-ROMs.patch b/payloads/external/SeaBIOS/0001-scripts-Increase-BUILD_MIN_BIOSTABLE-for-auto-sized-and-128KB-ROMs.patch
+new file mode 100644
+index 0000000..26c6196
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0001-scripts-Increase-BUILD_MIN_BIOSTABLE-for-auto-sized-and-128KB-ROMs.patch
+@@ -0,0 +1,63 @@
++scripts: Increase BUILD_MIN_BIOSTABLE for auto-sized and 128KB ROMs
++
++When CONFIG_ROM_SIZE is left at 0 (auto), checkrom.py will automatically
++determine the ROM size based on the actual binary size (up to 256KB).
++However, layoutrom.py only increased BUILD_MIN_BIOSTABLE to 8192 when
++CONFIG_ROM_SIZE was explicitly set to 256 or larger. This meant that if
++the code grew large enough to require a 256KB ROM, layoutrom.py would
++still use the smaller 2048-byte F-segment reserve, potentially causing
++resource allocation problems in case of a big number of boot entries.
++Also, 128KB ROMs should have a larger 4096-byte F-segment reserve.
++
++Fix this erroneous behavior for non-specified CONFIG_ROM_SIZE case by
++calculating the total raw size of all sections that will be placed in
++the ROM. This raw sum underestimates the final binary size by roughly
++5% due to alignment padding and relocation tables, so if it exceeds
++64KB we can reliably conclude the final ROM will be at least 128KB and
++set BUILD_MIN_BIOSTABLE = 4096; if it exceeds 128KB the final ROM will
++be 256KB and we set BUILD_MIN_BIOSTABLE = 8192, matching the behavior
++for explicitly configured 128KB and 256KB ROMs.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ scripts/layoutrom.py | 18 ++++++++++++++----
++ 1 file changed, 14 insertions(+), 4 deletions(-)
++
++diff --git a/scripts/layoutrom.py b/scripts/layoutrom.py
++index abebf021..4fe75ceb 100755
++--- a/scripts/layoutrom.py
+++++ b/scripts/layoutrom.py
++@@ -651,10 +651,6 @@ def main():
++     # Read kconfig config file
++     config = scanconfig(cfgfile)
++ 
++-    # larger roms have more room in the f-segment due to moving out 32bit code
++-    if config.get('CONFIG_ROM_SIZE') >= 256:
++-        BUILD_MIN_BIOSTABLE = 8192
++-
++     # Figure out which sections to keep.
++     allsections = info16[0] + info32seg[0] + info32flat[0]
++     symbols = {'16': info16[1], '32seg': info32seg[1], '32flat': info32flat[1]}
++@@ -670,6 +666,20 @@ def main():
++     keepsections = findReachable(anchorsections, checkKeep, symbols)
++     sections = [section for section in allsections if section in keepsections]
++ 
+++    # larger roms have more room in the f-segment due to moving out 32bit code
+++    if config.get('CONFIG_ROM_SIZE') >= 128:
+++        BUILD_MIN_BIOSTABLE = 4096
+++    if config.get('CONFIG_ROM_SIZE') >= 256:
+++        BUILD_MIN_BIOSTABLE = 8192
+++    if config.get('CONFIG_ROM_SIZE') == 0:
+++        sections_size = 0
+++        for section in sections:
+++            sections_size += section.size
+++        if sections_size >  64 * 1024:
+++            BUILD_MIN_BIOSTABLE = 4096
+++        if sections_size > 128 * 1024:
+++            BUILD_MIN_BIOSTABLE = 8192
+++
++     # Separate 32bit flat into runtime, init, and special variable parts
++     anchorsections = [
++         section for section in sections
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0002-config-Increase-BUILD_MAX_EXTDRIVE-from-16-to-36.patch b/payloads/external/SeaBIOS/0002-config-Increase-BUILD_MAX_EXTDRIVE-from-16-to-36.patch
+new file mode 100644
+index 0000000..d68f4da
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0002-config-Increase-BUILD_MAX_EXTDRIVE-from-16-to-36.patch
+@@ -0,0 +1,27 @@
++config: Increase BUILD_MAX_EXTDRIVE from 16 to 36
++
++Raise the maximum number of drives per type (floppy, hard disk, CD-ROM) to 36.
++This provides additional headroom for systems with many drives, such as multiple
++hard disks, CD-ROMs, or virtual floppies. All arrays dimensioned by
++BUILD_MAX_EXTDRIVE expand accordingly, consuming negligible additional memory.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/config.h | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/src/config.h b/src/config.h
++index 16952eb7..5700450a 100644
++--- a/src/config.h
+++++ b/src/config.h
++@@ -20,7 +20,7 @@
++ #define BUILD_MIN_HIGHTABLE (256*1024)
++ #define BUILD_MAX_HIGHTABLE (16*1024*1024)
++ // Largest supported externaly facing drive id
++-#define BUILD_MAX_EXTDRIVE 16
+++#define BUILD_MAX_EXTDRIVE 36
++ // Number of bytes the smbios may be and still live in the f-segment
++ #define BUILD_MAX_SMBIOS_FSEG     600
++ // Maximum number of bytes the mptable may be and still be copied to f-segment
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0003-config-Raise-MPTABLE-and-SMBIOS-F-segment-size-limits-from-600-to-768.patch b/payloads/external/SeaBIOS/0003-config-Raise-MPTABLE-and-SMBIOS-F-segment-size-limits-from-600-to-768.patch
+new file mode 100644
+index 0000000..6517cb8
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0003-config-Raise-MPTABLE-and-SMBIOS-F-segment-size-limits-from-600-to-768.patch
+@@ -0,0 +1,31 @@
++config: Raise MPTABLE and SMBIOS F-segment size limits from 600 to 768
++
++The current 600-byte limit for copying MPTABLE and SMBIOS tables to the
++F-segment is arbitrary and not aligned with power-of-two sizes. Some platforms
++require slightly larger tables (up to ~740 bytes), causing them to be truncated.
++Increase the limit to 768 bytes, a rounder value that provides ample headroom
++while remaining within the F-segment space. Adjust both limits for consistency.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/config.h | 4 ++--
++ 1 file changed, 2 insertions(+), 2 deletions(-)
++
++diff --git a/src/config.h b/src/config.h
++index 5700450a..7d98ed8b 100644
++--- a/src/config.h
+++++ b/src/config.h
++@@ -22,9 +22,9 @@
++ // Largest supported externaly facing drive id
++ #define BUILD_MAX_EXTDRIVE 36
++ // Number of bytes the smbios may be and still live in the f-segment
++-#define BUILD_MAX_SMBIOS_FSEG     600
+++#define BUILD_MAX_SMBIOS_FSEG     768
++ // Maximum number of bytes the mptable may be and still be copied to f-segment
++-#define BUILD_MAX_MPTABLE_FSEG    600
+++#define BUILD_MAX_MPTABLE_FSEG    768
++ 
++ #define BUILD_MODEL_ID      0xFC
++ #define BUILD_SUBMODEL_ID   0x00
++--
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0004-config-Increase-BUILD_MAX_HIGHTABLE-from-16MB-to-80M-for-large-ramdisk-support.patch b/payloads/external/SeaBIOS/0004-config-Increase-BUILD_MAX_HIGHTABLE-from-16MB-to-80M-for-large-ramdisk-support.patch
+new file mode 100644
+index 0000000..7614a3f
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0004-config-Increase-BUILD_MAX_HIGHTABLE-from-16MB-to-80M-for-large-ramdisk-support.patch
+@@ -0,0 +1,34 @@
++config: Increase BUILD_MAX_HIGHTABLE from 16MB to 80MB for large ramdisk support
++
++The BUILD_MAX_HIGHTABLE constant defines the maximum space that can be reserved
++in high-memory (ZoneHigh) for runtime tables and buffers. The current 16MB limit
++is sufficient for standard SeaBIOS operation but is inadequate to support
++custom-sized ramdisks as large as 63MB, the code for which is being added.
++
++A single ramdisk can be as large as 63 MB (2 heads * 1024 cylinders * 63 sectors
++per track * 512 bytes sector size). The ramdisk shared buffer must be allocated
++in ZoneHigh to persist across the boot process. Only one ramdisk is loaded at a
++time, its buffer must accommodate the full image. Raising BUILD_MAX_HIGHTABLE to
++80MB provides headroom for a 63MB ramdisk plus additional runtime allocations,
++while remaining well within typical system RAM limits on modern hardware.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/config.h | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/src/config.h b/src/config.h
++index 5700450a..91370684 100644
++--- a/src/config.h
+++++ b/src/config.h
++@@ -18,7 +18,7 @@
++ #define BUILD_MAX_E820 128
++ // Space to reserve in high-memory for tables
++ #define BUILD_MIN_HIGHTABLE (256*1024)
++-#define BUILD_MAX_HIGHTABLE (16*1024*1024)
+++#define BUILD_MAX_HIGHTABLE (80*1024*1024)
++ // Largest supported externaly facing drive id
++ #define BUILD_MAX_EXTDRIVE 36
++ // Number of bytes the smbios may be and still live in the f-segment
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0005-block-Move-IDMap-from-VARFSEG-to-VARLOW-to-save-F-segment-space.patch b/payloads/external/SeaBIOS/0005-block-Move-IDMap-from-VARFSEG-to-VARLOW-to-save-F-segment-space.patch
+new file mode 100644
+index 0000000..cf9d5102
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0005-block-Move-IDMap-from-VARFSEG-to-VARLOW-to-save-F-segment-space.patch
+@@ -0,0 +1,74 @@
++block: Move IDMap from VARFSEG to VARLOW to save F-segment space
++
++The F-segment (64KB) is a precious, limited resource in SeaBIOS that must
++accommodate the BIOS runtime code, option ROMs (VGA, NIC, HBA), ACPI tables,
++SMBIOS tables, and PnP BIOS structures. The IDMap array stores drive pointers
++for floppy, hard disk, and CD-ROM types. At BUILD_MAX_EXTDRIVE=36, this array
++consumes 432 bytes (3*36*4). Moving it from VARFSEG to VARLOW frees up
++F-segment space for these critical consumers while maintaining correct
++functionality from all execution contexts (real mode, protected mode, SMM).
++
++This change replaces GET_GLOBAL() with GET_LOW() for IDMap access and adds the
++BUILD_MAX_EXTDRIVE include to block.h. The IDMap structure is now exposed
++externally via extern declaration in block.h, enabling other modules like
++ramdisk.c to access drive mappings directly.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/block.c | 6 +++---
++ src/block.h | 2 ++
++ 2 files changed, 5 insertions(+), 3 deletions(-)
++
++diff --git a/src/block.c b/src/block.c
++index 1f600b85..22d3953d 100644
++--- a/src/block.c
+++++ b/src/block.c
++@@ -5,7 +5,7 @@
++ //
++ // This file may be distributed under the terms of the GNU LGPLv3 license.
++ 
++-#include "biosvar.h" // GET_GLOBAL
+++#include "biosvar.h" // GET_GLOBALFLAT
++ #include "block.h" // process_op
++ #include "hw/ata.h" // process_ata_op
++ #include "hw/ahci.h" // process_ahci_op
++@@ -30,7 +30,7 @@
++ 
++ u8 FloppyCount VARFSEG;
++ u8 CDCount;
++-struct drive_s *IDMap[3][BUILD_MAX_EXTDRIVE] VARFSEG;
+++struct drive_s *IDMap[3][BUILD_MAX_EXTDRIVE] VARLOW;
++ u8 *bounce_buf_fl VARFSEG;
++ 
++ struct drive_s *
++@@ -38,7 +38,7 @@ getDrive(u8 exttype, u8 extdriveoffset)
++ {
++     if (extdriveoffset >= ARRAY_SIZE(IDMap[0]))
++         return NULL;
++-    return GET_GLOBAL(IDMap[exttype][extdriveoffset]);
+++    return GET_LOW(IDMap[exttype][extdriveoffset]);
++ }
++ 
++ int getDriveId(u8 exttype, struct drive_s *drive)
++diff --git a/src/block.h b/src/block.h
++index 3af2d716..3dc3db66 100644
++--- a/src/block.h
+++++ b/src/block.h
++@@ -2,6 +2,7 @@
++ #define __BLOCK_H
++ 
++ #include "types.h" // u32
+++#include "config.h" // BUILD_MAX_EXTDRIVE
++ 
++ 
++ /****************************************************************
++@@ -108,6 +109,7 @@ struct drive_s {
++ 
++ // block.c
++ extern u8 FloppyCount, CDCount;
+++extern struct drive_s *IDMap[3][BUILD_MAX_EXTDRIVE];
++ extern u8 *bounce_buf_fl;
++ struct drive_s *getDrive(u8 exttype, u8 extdriveoffset);
++ int getDriveId(u8 exttype, struct drive_s *drive);
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0006-floppy-Add-floppy_get_chs-and-floppy_get_data_rate-helper-functions.patch b/payloads/external/SeaBIOS/0006-floppy-Add-floppy_get_chs-and-floppy_get_data_rate-helper-functions.patch
+new file mode 100644
+index 0000000..f7e1f43
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0006-floppy-Add-floppy_get_chs-and-floppy_get_data_rate-helper-functions.patch
+@@ -0,0 +1,63 @@
++floppy: Add floppy_get_chs() and floppy_get_data_rate() helper functions
++
++The FloppyInfo[] array contains authoritative CHS geometry and FDC data rate
++information for standard floppy types. Previously, this data was only accessible
++internally within floppy.c. These new helper functions will provide the safe
++read-only access to FloppyInfo[] - in particular, ramdisk.c will need this data
++for the upcoming significant improvement of its ramdisk emulation feature.
++
++This ensures a single source of truth for floppy geometry and data rates, allows
++future code to match SeaBIOS's native floppy behavior and prevents out-of-bounds
++access to the FloppyInfo[] array by validating the ftype parameter.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/hw/floppy.c | 19 +++++++++++++++++++
++ src/util.h      |  2 ++
++ 2 files changed, 21 insertions(+)
++
++diff --git a/src/hw/floppy.c b/src/hw/floppy.c
++index 9e6647d4..2668ac91 100644
++--- a/src/hw/floppy.c
+++++ b/src/hw/floppy.c
++@@ -186,6 +186,25 @@ find_floppy_type(u32 size)
++     return -1;
++ }
++ 
+++// Get CHS geometry for a floppy type.
+++int
+++floppy_get_chs(int ftype, struct chs_s *chs)
+++{
+++    if (ftype <= 0 || ftype >= ARRAY_SIZE(FloppyInfo))
+++        return -1;
+++    *chs = FloppyInfo[ftype].chs;
+++    return 0;
+++}
+++
+++// Get FDC data rate for a floppy type.
+++int
+++floppy_get_data_rate(int ftype)
+++{
+++    if (ftype <= 0 || ftype >= ARRAY_SIZE(FloppyInfo))
+++        return -1;
+++
+++    return FloppyInfo[ftype].data_rate;
+++}
++ 
++ /****************************************************************
++  * Low-level floppy IO
++diff --git a/src/util.h b/src/util.h
++index aff8e888..6679b0ae 100644
++--- a/src/util.h
+++++ b/src/util.h
++@@ -169,6 +169,8 @@ extern struct floppy_ext_dbt_s diskette_param_table2;
++ void floppy_setup(void);
++ struct drive_s *init_floppy(int floppyid, int ftype);
++ int find_floppy_type(u32 size);
+++int floppy_get_chs(int ftype, struct chs_s *chs);
+++int floppy_get_data_rate(int ftype);
++ int floppy_process_op(struct disk_op_s *op);
++ void floppy_tick(void);
++ 
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0007-boot-Replace-hardcoded-BEV-array-size-with-BUILD_MAX_EXTDRIVE-3.patch b/payloads/external/SeaBIOS/0007-boot-Replace-hardcoded-BEV-array-size-with-BUILD_MAX_EXTDRIVE-3.patch
+new file mode 100644
+index 0000000..1ff99a4
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0007-boot-Replace-hardcoded-BEV-array-size-with-BUILD_MAX_EXTDRIVE-3.patch
+@@ -0,0 +1,32 @@
++boot: Replace hardcoded BEV array size with BUILD_MAX_EXTDRIVE * 3
++
++The BEV array stores boot entries for floppy, HDD and CDROM drives, as well as
++option ROMs and other boot sources. The previous hardcoded limit of 20 entries
++was arbitrary and could be exceeded when many drives are present - especially
++with the upcoming support for multiple floppies and ramdisk images.
++
++The max number of drive boot entries is bounded by BUILD_MAX_EXTDRIVE per drive
++type. Since there are three drive types, the worst-case drive-only total is
++BUILD_MAX_EXTDRIVE * 3. Using this value ensures that the array cannot overflow
++due to the drives, while still leaving enough room for the option ROM entries.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/boot.c | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/src/boot.c b/src/boot.c
++index 5c37dafd..18e62a43 100644
++--- a/src/boot.c
+++++ b/src/boot.c
++@@ -798,7 +798,7 @@ struct bev_s {
++     int type;
++     u32 vector;
++ };
++-static struct bev_s BEV[20];
+++static struct bev_s BEV[BUILD_MAX_EXTDRIVE * 3];
++ static int BEVCount;
++ static int HaveHDBoot, HaveFDBoot;
++ 
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0008-boot-Move-BEV-array-to-VARLOW-for-explicit-low-memory-placement.patch b/payloads/external/SeaBIOS/0008-boot-Move-BEV-array-to-VARLOW-for-explicit-low-memory-placement.patch
+new file mode 100644
+index 0000000..7d6de8c
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0008-boot-Move-BEV-array-to-VARLOW-for-explicit-low-memory-placement.patch
+@@ -0,0 +1,32 @@
++boot: Move BEV array to VARLOW for explicit low-memory placement
++
++The BEV (Boot Execution Vector) array stores boot entries for floppy, hard disk,
++and CD-ROM types. At BUILD_MAX_EXTDRIVE=36, this array consumes 864 bytes
++(36*3*8). Moving it to VARLOW ensures explicit low-memory placement, making it
++accessible from all execution contexts (real mode, protected mode, SMM) while
++avoiding potential F-segment space consumption.
++
++This change removes the static qualifier from the BEV array and adds VARLOW,
++making it externally visible for access from other modules. This prepares the
++code for the upcoming significant improvement of its ramdisk emulation feature.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/boot.c | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/src/boot.c b/src/boot.c
++index 18e62a43..65092eba 100644
++--- a/src/boot.c
+++++ b/src/boot.c
++@@ -798,7 +798,7 @@ struct bev_s {
++     int type;
++     u32 vector;
++ };
++-static struct bev_s BEV[BUILD_MAX_EXTDRIVE * 3];
+++struct bev_s BEV[BUILD_MAX_EXTDRIVE * 3] VARLOW;
++ static int BEVCount;
++ static int HaveHDBoot, HaveFDBoot;
++ 
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0009-boot-ramdisk-Multiple-ramdisk-precise-support-with-F-segment-conservation.patch b/payloads/external/SeaBIOS/0009-boot-ramdisk-Multiple-ramdisk-precise-support-with-F-segment-conservation.patch
+new file mode 100644
+index 0000000..2c7faf5
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0009-boot-ramdisk-Multiple-ramdisk-precise-support-with-F-segment-conservation.patch
+@@ -0,0 +1,1112 @@
++boot, ramdisk: Multiple ramdisk precise support with F-segment conservation
++
++Extend ramdisk support to handle multiple images with full boot menu
++integration. Ramdisks and "BootList devices" (physical devices and secondary
++payloads) appear in a merged boot menu, sorted by bootorder priority. Ramdisks
++boot directly before PMM finalize, with automatic fallback to the next entry on
++failure. Meanwhile, the "BootList devices" hand off to the standard BEV flow.
++
++CRITICAL: Ramdisks use a separate pool (ramdisk_pool[]) rather than adding to
++BootList like BEV/BCV entries. This avoids F-segment exhaustion that would occur
++if each ramdisk allocated a separate drive_s structure in VARFSEG. Instead, a
++single shared buffer in ZoneHigh holds the selected image, while pool metadata
++resides in VARLOW. This design scales to multiple ramdisks without consuming
++precious F-segment space needed for option ROMs and ACPI / SMBIOS tables.
++
++To support this:
++- Add ramdisk_pool[] in VARLOW to store multiple ramdisk entries
++- Implement prepare_bootmenu() to merge ramdisks and BootList entries
++- Add apply_boot_selection() for unified boot selection handling
++- Move BEV[] and BootSequence to VARLOW to conserve F-segment space
++- Save/restore complete BDA state (media_state, motor_counter, DPT)
++- Set FDC data rate via PORT_FD_DIR and floppy_media_state BDA field
++- Support dual prefixes: "ramdisk/" and "floppyimg/" for backward compat
++- Defer bootorder name matching until after ramdisk pool initialization
++- Export boot_disk() for ramdisk.c to call directly
++
++This enables hobby OS developers/enthusiasts to test and use multiple floppies
++and ramdisk images from a single coreboot+SeaBIOS build without ROM reflashings,
++with bootorder control over ramdisk versus physical device / secondary payload
++priority. The implementation matches SeaBIOS floppy behavior, ensuring a better
++compatibility with OSes that expect standard floppy geometry and FDC config.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/boot.c       | 394 +++++++++++++++++++++++++++++++------
++ src/hw/ramdisk.c | 500 ++++++++++++++++++++++++++++++++++++++++++++---
++ src/util.h       |   6 +
++ 3 files changed, 813 insertions(+), 87 deletions(-)
++
++diff --git a/src/boot.c b/src/boot.c
++index 65092eba..8ebf5edc 100644
++--- a/src/boot.c
+++++ b/src/boot.c
++@@ -245,6 +245,36 @@ int boot_lchs_find_ata_device(struct pci_device *pci, int chanid, int slave,
++ static char **Bootorder VARVERIFY32INIT;
++ static int BootorderCount;
++ 
+++#define FLOPPYIMG_BOOTORDER_PREFIX "/rom@floppyimg/"
+++#define RAMDISK_BOOTORDER_PREFIX "/rom@ramdisk/"
+++
+++struct ramdisk_bootorder_entry {
+++    const char *name;
+++    int priority;
+++};
+++
+++struct menu_entry {
+++    u8 is_ramdisk;
+++    union {
+++        int ramdisk_pool_index;
+++        struct bootentry_s *bootlist_entry;
+++    };
+++    int priority;
+++};
+++
+++struct ramdisk_bootorder_entry *ramdisk_bootorder_list VARLOW;
+++int ramdisk_bootorder_count VARLOW;
+++
+++static void
+++free_ramdisk_bootorder_list(void)
+++{
+++    if (ramdisk_bootorder_list) {
+++        free(ramdisk_bootorder_list);
+++        ramdisk_bootorder_list = NULL;
+++        ramdisk_bootorder_count = 0;
+++    }
+++}
+++
++ static void
++ loadBootOrder(void)
++ {
++@@ -270,17 +300,48 @@ loadBootOrder(void)
++         return;
++     }
++ 
+++    ramdisk_bootorder_list = malloc_high(BootorderCount *
+++                               sizeof(*ramdisk_bootorder_list));
+++    if (!ramdisk_bootorder_list) {
+++        dprintf(1, "bootorder: ramdisk priority disabled (no memory)\n");
+++        warn_noalloc();
+++    }
+++    ramdisk_bootorder_count = 0;
+++
++     dprintf(1, "boot order:\n");
++-    i = 0;
++-    do {
+++    for (i = 0; i < BootorderCount && f; i++) {
++         Bootorder[i] = f;
++         f = strchr(f, '\n');
++         if (f)
++             *(f++) = '\0';
++         Bootorder[i] = nullTrailingSpace(Bootorder[i]);
++         dprintf(1, "%d: %s\n", i+1, Bootorder[i]);
++-        i++;
++-    } while (f);
+++
+++        // Check if this line references a ramdisk (new or old format).
+++        const char *ramdisk_name = ramdisk_extract_name(Bootorder[i], RAMDISK_BOOTORDER_PREFIX);
+++        if (!ramdisk_name)
+++                    ramdisk_name = ramdisk_extract_name(Bootorder[i], FLOPPYIMG_BOOTORDER_PREFIX);
+++
+++        if (ramdisk_bootorder_list && ramdisk_name) {
+++            // Check for duplicates based on name string (the pool is not ready yet).
+++            int is_duplicate = 0;
+++            for (int k = 0; k < ramdisk_bootorder_count; k++) {
+++                if (strcmp(ramdisk_bootorder_list[k].name, ramdisk_name) == 0) {
+++                    is_duplicate = 1;
+++                    dprintf(3, "Skipping duplicate ramdisk entry in bootorder: %s\n",
+++                            ramdisk_name);
+++                    break;
+++                }
+++            }
+++            if (!is_duplicate) {
+++                ramdisk_bootorder_list[ramdisk_bootorder_count].name = ramdisk_name;
+++                ramdisk_bootorder_list[ramdisk_bootorder_count].priority = i + 1;
+++                ramdisk_bootorder_count++;
+++                dprintf(1, "Queued ramdisk bootorder: %s (priority %d)\n",
+++                        ramdisk_name, i + 1);
+++            }
+++        }
+++    }
++ }
++ 
++ // Search the bootorder list for the given glob pattern.
++@@ -455,7 +516,8 @@ int bootprio_find_usb(struct usbdevice_s *usbdev, int lun)
++ static int BootRetryTime;
++ static int CheckFloppySig = 1;
++ 
++-#define DEFAULT_PRIO           9999
+++#define DEFAULT_PRIO           1000
+++#define DEFAULT_RAMDISK_PRIO   2000
++ 
++ static int DefaultFloppyPrio = 101;
++ static int DefaultCDPrio     = 102;
++@@ -680,6 +742,8 @@ get_keystroke(int msec)
++  * Boot menu and BCV execution
++  ****************************************************************/
++ 
+++int BootSequence VARLOW = -1;
+++
++ #define DEFAULT_BOOTMENU_WAIT 2500
++ 
++ static const char menuchars[] = {
++@@ -690,107 +754,317 @@ static const char menuchars[] = {
++     'u', 'v', 'w', 'x', 'y', 'z'
++ };
++ 
+++// Prepare merged boot menu with ramdisks and BootList entries
+++// (physical devices and secondary payloads), sorted by priority.
+++// Populates entries[] array and returns count via pointer.
+++// PMM NOTE: This must be called BEFORE prepareboot() because ramdisk boot
+++// requires high memory that gets returned to E820 during malloc_prepboot().
+++static void
+++prepare_bootmenu(struct menu_entry *entries, int *count)
+++{
+++    int menu_count = 0;
+++
+++    // 1. Add ramdisks with bootorder priority or default.
+++    int pool_count = ramdisk_get_count();
+++    for (int i = 0; i < pool_count && menu_count < ARRAY_SIZE(menuchars); i++) {
+++        const char *name = ramdisk_get_name(i);
+++        if (!name)
+++            continue;
+++
+++        // Default priority: AFTER BootList entries.
+++        // Ramdisks in bootorder file get their specified priority.
+++        int priority = DEFAULT_RAMDISK_PRIO + i;
+++
+++        // Resolve priority by matching names now that the pool exists.
+++        if (ramdisk_bootorder_list && ramdisk_bootorder_count > 0) {
+++            for (int k = 0; k < ramdisk_bootorder_count; k++) {
+++                // Compare the name from the pool with the name stored in bootorder.
+++                if (strcmp(ramdisk_bootorder_list[k].name, name) == 0) {
+++                    priority = ramdisk_bootorder_list[k].priority;
+++                    dprintf(3, "Resolved ramdisk '%s' to priority %d\n", name, priority);
+++                    break;
+++                }
+++            }
+++        }
+++
+++        entries[menu_count].is_ramdisk = 1;
+++        entries[menu_count].ramdisk_pool_index = i;
+++        entries[menu_count].priority = priority;
+++        menu_count++;
+++    }
+++
+++    // 2. Add BootList entries.
+++    struct bootentry_s *pos;
+++    hlist_for_each_entry(pos, &BootList, node) {
+++        if (menu_count >= ARRAY_SIZE(menuchars))
+++            break;
+++
+++        entries[menu_count].is_ramdisk = 0;
+++        entries[menu_count].bootlist_entry = pos;
+++        entries[menu_count].priority = pos->priority;
+++        menu_count++;
+++    }
+++
+++    // 3. Sort menu_entries by priority (simple bubble sort).
+++    for (int i = 0; i < menu_count - 1; i++) {
+++        for (int k = 0; k < menu_count - i - 1; k++) {
+++            if (entries[k].priority > entries[k + 1].priority) {
+++                struct menu_entry tmp = entries[k];
+++                entries[k] = entries[k + 1];
+++                entries[k + 1] = tmp;
+++            }
+++        }
+++    }
+++
+++    *count = menu_count;
+++}
+++
+++// Apply boot selection (called on timeout or key press).
+++// Ramdisks boot DIRECTLY from here, before PMM finalize.
+++// PMM CONSTRAINT: Once a BootList device is selected (break), ramdisks
+++// can no longer be booted because prepareboot() will free high memory.
+++static void
+++apply_boot_selection(int entry_idx, struct menu_entry *menu_entries,
+++                     int menu_count)
+++{
+++    while (entry_idx >= 0 && entry_idx < menu_count) {
+++        if (menu_entries[entry_idx].is_ramdisk) {
+++            // Ramdisk - boot DIRECTLY, before PMM finalize.
+++            int pool_idx = menu_entries[entry_idx].ramdisk_pool_index;
+++            if (ramdisk_boot(pool_idx, CheckFloppySig) >= 0) {
+++                // Boot succeeded - never returns, but just in case...
+++                return;
+++            }
+++            // Boot failed - try next entry (loop continues).
+++            printf("Failed to load this ramdisk. Trying next...\n\n");
+++            entry_idx++;
+++            continue;
+++        } else {
+++            if (menu_entries[entry_idx].bootlist_entry) {
+++                // Physical device or a secondary payload - add to BootList for BEV flow.
+++                hlist_del(&menu_entries[entry_idx].bootlist_entry->node);
+++                menu_entries[entry_idx].bootlist_entry->priority = 0;
+++                hlist_add_head(
+++                    &menu_entries[entry_idx].bootlist_entry->node,
+++                    &BootList);
+++                BootSequence = 0;
+++            }
+++            // BootList device selected - exit loop (BEV will handle fallback).
+++            break;
+++        }
+++    }
+++}
+++
+++// Boot the highest priority device from a merged menu that contains the
+++// ramdisks and "BootList devices" (physical devices and secondary payloads).
+++//
+++// PMM LIMITATION:
+++// - Ramdisks MUST be tried BEFORE prepareboot() (before malloc_prepboot)
+++// - "BootList devices" are added to BootList during bcv_prepboot() (after)
+++// - Once BEV phase starts, ramdisk boot is IMPOSSIBLE (shared buffer freed)
+++//
+++// BEHAVIOR:
+++// - Starts trying out the menu entries according to their priority
+++// - Ramdisks before the first "BootList device" in bootorder are tried as expected
+++// - Ramdisks  after the first "BootList device" in bootorder are SKIPPED (PMM constraint)
+++// - On ramdisk failure, continues to next menu entry
+++// - On "BootList device" selection, hands off to BEV flow for fallback
+++//
+++// WORKAROUND:
+++// - Use bootorder file to control exact boot priority
+++// - List ramdisks BEFORE "BootList devices" if you want ramdisks tried first
+++// - List "BootList devices" BEFORE ramdisks if you want "BootList devices" tried first
+++static void
+++boot_first_device(struct menu_entry *entries, int menu_count)
+++{
+++    if (menu_count == 0) {
+++        dprintf(1, "No boot devices available, going to BEV flow\n");
+++        free_ramdisk_bootorder_list();
+++        return;
+++    }
+++
+++    // Try entries in priority order (index 0 = highest priority).
+++    apply_boot_selection(0, entries, menu_count);
+++
+++    // If we get here, all ramdisks failed or user selected physical device.
+++    // Free bootorder list and let BEV flow handle physical device fallback.
+++    dprintf(1, "Ramdisk boot failed or physical device selected, switching to BEV flow\n");
+++    free_ramdisk_bootorder_list();
+++
+++    // Return to interactive_bootmenu() --> prepareboot() --> BEV flow
+++    // Physical devices will be tried through standard BEV mechanism
+++    // (in bootorder priority, with fallback to next physical on failure)
+++}
+++
+++static void
+++print_bootmenu(struct menu_entry *entries, int menu_count)
+++{
+++    printf("\n\nSelect boot device:\n\n");
+++
+++    for (int i = 0; i < menu_count; i++) {
+++        char desc[77];
+++        if (entries[i].is_ramdisk) {
+++            printf("%c. Ramdisk [%s]\n", menuchars[i],
+++                   ramdisk_get_name(entries[i].ramdisk_pool_index));
+++        } else {
+++            printf("%c. %s\n", menuchars[i],
+++                   strtcpy(desc, entries[i].bootlist_entry->description,
+++                           ARRAY_SIZE(desc)));
+++        }
+++    }
+++
+++    if (tpm_can_show_menu())
+++        printf("\nt. TPM Configuration\n");
+++
+++    printf("\n> ");
+++}
+++
+++static void
+++clear_keyboard_buffer(void)
+++{
+++    while (get_keystroke(0) >= 0)
+++        ;
+++}
+++
+++static int
+++is_menukey(int key_scan, int menukey)
+++{
+++    return key_scan == menukey ||
+++           key_scan ==   1;    // Escape key
+++}
+++
++ // Show IPL option menu.
++ void
++ interactive_bootmenu(void)
++ {
++-    if (! CONFIG_BOOTMENU)
+++    // Wait for all background device initialization processes to complete.
+++    // Ensures all bootable devices are discovered before the menu operations.
+++    wait_threads();
+++
+++    // Prepare merged menu FIRST (before any early returns).
+++    struct menu_entry entries[ARRAY_SIZE(menuchars)];
+++    int menu_count;
+++    prepare_bootmenu(entries, &menu_count);
+++
+++    // Handle case: NO boot devices at all.
+++    if (menu_count == 0) {
+++        dprintf(1, "No boot devices available\n");
+++        if (tpm_can_show_menu()) {
+++            clear_keyboard_buffer();
+++            printf("\n");
+++            tpm_menu();
+++            printf("\n");
+++        }
+++        free_ramdisk_bootorder_list();
+++        return;
+++    }
+++
+++    if (! CONFIG_BOOTMENU) {
+++        boot_first_device(entries, menu_count);
++         return;
+++    }
++     int show_boot_menu = romfile_loadint("etc/show-boot-menu", 1);
++-    if (!show_boot_menu)
+++    if (!show_boot_menu) {
+++        boot_first_device(entries, menu_count);
++         return;
+++    }
++ 
++-    // skip menu if only one boot device and no TPM
++-    if (show_boot_menu == 2 && !tpm_can_show_menu()
++-        && !hlist_empty(&BootList) && !BootList.first->next) {
+++    // Skip menu if only one boot device and no TPM.
+++    if (show_boot_menu == 2 && !tpm_can_show_menu() && menu_count == 1) {
++         dprintf(1, "Only one boot device present. Skip boot menu.\n");
++         printf("\n");
+++        boot_first_device(entries, menu_count);
++         return;
++     }
++ 
++     int menutime = romfile_loadint("etc/boot-menu-wait", DEFAULT_BOOTMENU_WAIT);
++     int menukey = romfile_loadint("etc/boot-menu-key", 1);
++-    int scan_code;
+++    int keystroke;
+++    int key_ascii;
+++    int key_scan;
++     if (menutime >= 0) {
++-        while (get_keystroke(0) >= 0)
++-            ;
++-
++         char *bootmsg = romfile_loadfile("etc/boot-menu-message", NULL);
++-        printf("%s", bootmsg ?: "\nPress ESC for boot menu.\n\n");
+++        printf("%s", bootmsg ?: "\nPress ESC for boot menu.");
++         free(bootmsg);
++ 
++         enable_bootsplash();
++-        scan_code = get_keystroke(menutime);
+++        clear_keyboard_buffer();
+++        keystroke = get_keystroke_full(menutime);
+++        key_ascii = keystroke & 0xff;
+++        key_scan  = keystroke >> 8;
++         disable_bootsplash();
++-        if (scan_code != menukey)
++-            return;
++-    }
++-
++-    while (get_keystroke(0) >= 0)
++-        ;
++ 
++-    printf("Select boot device:\n\n");
++-    wait_threads();
+++        if (keystroke < 0) {
+++            printf("\n\nTimeout: no key pressed, boot the first menu entry (highest priority)\n\n");
+++            apply_boot_selection(0, entries, menu_count);
+++            free_ramdisk_bootorder_list();
+++            return;
+++        }
++ 
++-    // Show menu items
++-    int maxmenu = 0;
++-    struct bootentry_s *pos, *boot = NULL;
++-    hlist_for_each_entry(pos, &BootList, node) {
++-        char desc[77];
++-        if (maxmenu >= ARRAY_SIZE(menuchars)) {
++-            break;
+++        if (! is_menukey(key_scan, menukey)) {
+++            if (tpm_can_show_menu() && key_ascii == 't') {
+++                clear_keyboard_buffer();
+++                printf("\n");
+++                tpm_menu();
+++                printf("\n");
+++            } else {
+++                // Non-menukey pressed - check ALL menu entries.
+++                for (int i = 0; i < menu_count; i++) {
+++                    if (key_ascii == menuchars[i]) {
+++                        printf("\n\n> %c\n", menuchars[i]);
+++                        apply_boot_selection(i, entries, menu_count);
+++                        free_ramdisk_bootorder_list();
+++                        return;
+++                    }
+++                }
+++                printf("\n\nNo key matched - fall through to show menu.");
+++            }
++         }
++-        printf("%c. %s\n", menuchars[maxmenu]
++-               , strtcpy(desc, pos->description, ARRAY_SIZE(desc)));
++-        maxmenu++;
++-    }
++-    if (tpm_can_show_menu()) {
++-        printf("\nt. TPM Configuration\n");
++     }
++ 
+++    print_bootmenu(entries, menu_count);
+++
++     // Get key press.  If the menu key is ESC, do not restart boot unless
++     // 1.5 seconds have passed.  Otherwise users (trained by years of
++     // repeatedly hitting keys to enter the BIOS) will end up hitting ESC
++     // multiple times and immediately booting the primary boot device.
++     int esc_accepted_time = irqtimer_calc(menukey == 1 ? 1500 : 0);
++     for (;;) {
++-        int keystroke = get_keystroke_full(1000);
+++        clear_keyboard_buffer();
+++        keystroke = get_keystroke_full(1000);
+++        key_ascii = keystroke & 0xff;
+++        key_scan  = keystroke >> 8;
+++
++         if (keystroke == 0x011b && !irqtimer_check(esc_accepted_time))
++             continue;
++         if (keystroke < 0) // timeout
++             continue;
++ 
++-        scan_code = keystroke >> 8;
++-        int key_ascii = keystroke & 0xff;
++         if (tpm_can_show_menu() && key_ascii == 't') {
+++            clear_keyboard_buffer();
++             printf("\n");
++             tpm_menu();
+++            printf("\n");
+++            print_bootmenu(entries, menu_count);
+++            continue;
++         }
++-        if (scan_code == 1) {
++-            // ESC
+++
+++        if (is_menukey(key_scan, menukey)) {
++             printf("\n");
+++            free_ramdisk_bootorder_list();
++             return;
++         }
++ 
++-        maxmenu = 0;
++-        hlist_for_each_entry(pos, &BootList, node) {
++-            if (maxmenu >= ARRAY_SIZE(menuchars))
++-                break;
++-            if (key_ascii == menuchars[maxmenu]) {
++-                boot = pos;
++-                break;
+++        // Check key press against prepared menu list.
+++        for (int i = 0; i < menu_count; i++) {
+++            if (key_ascii == menuchars[i]) {
+++                printf("%c\n", menuchars[i]);
+++                apply_boot_selection(i, entries, menu_count);
+++                free_ramdisk_bootorder_list();
+++                return;
++             }
++-            maxmenu++;
++         }
++-        if (boot)
++-            break;
++     }
++-    printf("\n");
++-
++-    // Find entry and make top priority.
++-    hlist_del(&boot->node);
++-    boot->priority = 0;
++-    hlist_add_head(&boot->node, &BootList);
++ }
++ 
++ // BEV (Boot Execution Vector) list
++@@ -878,7 +1152,7 @@ call_boot_entry(struct segoff_s bootsegip, u8 bootdrv)
++ }
++ 
++ // Boot from a disk (either floppy or harddrive)
++-static void
+++void
++ boot_disk(u8 bootdrv, int checksig)
++ {
++     u16 bootseg = 0x07c0;
++@@ -1024,8 +1298,6 @@ do_boot(int seq_nr)
++     call16_int(0x18, &br);
++ }
++ 
++-int BootSequence VARLOW = -1;
++-
++ // Boot Failure recovery: try the next device.
++ void VISIBLE32FLAT
++ handle_18(void)
++diff --git a/src/hw/ramdisk.c b/src/hw/ramdisk.c
++index b9e9baab..bb892dbf 100644
++--- a/src/hw/ramdisk.c
+++++ b/src/hw/ramdisk.c
++@@ -4,7 +4,7 @@
++ //
++ // This file may be distributed under the terms of the GNU LGPLv3 license.
++ 
++-#include "biosvar.h" // GET_GLOBALFLAT
+++#include "biosvar.h" // GET_BDA, SET_BDA
++ #include "block.h" // struct drive_s
++ #include "bregs.h" // struct bregs
++ #include "e820map.h" // e820_add
++@@ -13,50 +13,497 @@
++ #include "output.h" // dprintf
++ #include "romfile.h" // romfile_findprefix
++ #include "stacks.h" // call16_int
+++#include "std/bda.h" // FMS_MEDIA_DRIVE_ESTABLISHED
++ #include "std/disk.h" // DISK_RET_SUCCESS
++ #include "string.h" // memset
++ #include "util.h" // process_ramdisk_op
++ 
+++#define FLOPPYIMG_PREFIX "floppyimg/"
+++#define RAMDISK_PREFIX "ramdisk/"
+++
+++// FDC-related constants (matches floppy.c)
+++#define FLOPPY_RATE_500K 0x00
+++#define FLOPPY_RATE_300K 0x01
+++#define FLOPPY_RATE_250K 0x02
+++#define FLOPPY_RATE_1M   0x03
+++#define PORT_FD_DIR    0x03f7
+++
+++// Floppy/ramdisk geometry examples (i.e. if you prepare a custom image with "mkdosfs" - use its "-g" geometry flag)
+++//  1440(KB) = 1.40625MB     standard floppy (2 heads *   80 cylinders * 18 sectors per track * 512 bytes sector size)
+++//  2880(KB) = 2.81250MB high-density floppy (2 heads *   80 cylinders * 36 sectors per track * 512 bytes sector size)
+++//  4880(KB) =   ~4.77MB    coreboot ramdisk (2 heads *   80 cylinders * 61 sectors per track * 512 bytes sector size)
+++//  4960(KB) =   ~4.85MB    coreboot ramdisk (2 heads *   80 cylinders * 62 sectors per track * 512 bytes sector size)
+++//  5040(KB) =   ~4.93MB    coreboot ramdisk (2 heads *   80 cylinders * 63 sectors per track * 512 bytes sector size)
+++//  5103(KB) =   ~4.99MB    coreboot ramdisk (2 heads *   81 cylinders * 63 sectors per track * 512 bytes sector size)
+++//  5166(KB) =   ~5.05MB    coreboot ramdisk (2 heads *   82 cylinders * 63 sectors per track * 512 bytes sector size)
+++// 64512(KB) =      63MB    coreboot ramdisk (2 heads * 1024 cylinders * 63 sectors per track * 512 bytes sector size)
+++#define FLOPPY_HEADS                   2
+++#define FLOPPY_STANDARD_CYLINDERS     80
+++#define FLOPPY_MAX_CYLINDERS        1024
+++#define FLOPPY_MAX_SECTORS_TRACK      63
+++#define FLOPPY_1_44MB_SECTORS_TRACK   18
+++#define FLOPPY_2_88MB_SECTORS_TRACK   36
+++
+++#define FLOPPY_1_44MB (FLOPPY_HEADS * FLOPPY_STANDARD_CYLINDERS \
+++                       * FLOPPY_1_44MB_SECTORS_TRACK * DISK_SECTOR_SIZE)
+++#define FLOPPY_2_88MB (FLOPPY_HEADS * FLOPPY_STANDARD_CYLINDERS \
+++                       * FLOPPY_2_88MB_SECTORS_TRACK * DISK_SECTOR_SIZE)
+++
+++// Max size with 80 cylinders (standard) at 63 sectors/track (5160960 bytes).
+++#define FLOPPY_80CYLS_MAX_SIZE (FLOPPY_HEADS * FLOPPY_STANDARD_CYLINDERS \
+++                                * FLOPPY_MAX_SECTORS_TRACK * DISK_SECTOR_SIZE)
+++
+++// Max bootable size: 2 heads * 1024 cylinders * 63 sectors * 512 bytes (63 MB).
+++#define FLOPPY_MAX_BOOTABLE (FLOPPY_HEADS * FLOPPY_MAX_CYLINDERS \
+++                             * FLOPPY_MAX_SECTORS_TRACK * DISK_SECTOR_SIZE)
+++
+++struct drive_s ramdisk VARLOW;
+++
+++struct ramdisk_entry {
+++    struct romfile_s *file;
+++    u32 size;
+++    int ftype;
+++    u16 cylinders;
+++    u16 sectors_track;
+++    const char *name;
+++};
+++
+++struct ramdisk_entry *ramdisk_pool VARLOW;
+++int ramdisk_pool_count VARLOW;
+++void *ramdisk_shared_buffer VARLOW;
+++
+++// Save original INT 1Eh vector and DPT sectors for restoration.
+++struct segoff_s saved_int1e_vector VARLOW;
+++int int1e_vector_saved VARLOW;
+++u8 saved_dpt_sectors VARLOW;
+++
+++// Calculate CHS-compatible padded size for a ramdisk.
+++// Returns size aligned to sector (512) and CHS track boundaries.
+++// Sets *out_cylinders and *out_sectors_track.
+++// Caller must check if returned size > FLOPPY_MAX_BOOTABLE.
+++static u32
+++ramdisk_align_size(u32 native_size, u16 *out_cylinders, u16 *out_sectors_track)
+++{
+++    *out_cylinders = FLOPPY_STANDARD_CYLINDERS;
+++    *out_sectors_track = FLOPPY_1_44MB_SECTORS_TRACK;
+++
+++    // First, pad to sector boundary (512 bytes).
+++    u32 padded_size = ((native_size + DISK_SECTOR_SIZE - 1) /
+++                       DISK_SECTOR_SIZE) * DISK_SECTOR_SIZE;
+++
+++    int ftype = find_floppy_type(padded_size);
+++    if (ftype < 0) {
+++        if (padded_size <= FLOPPY_80CYLS_MAX_SIZE) {
+++            // Pad to track boundary: 2 heads * 80 cylinders * 512 bytes
+++            *out_cylinders = FLOPPY_STANDARD_CYLINDERS;
+++            *out_sectors_track = ((padded_size / DISK_SECTOR_SIZE) +
+++                                  FLOPPY_HEADS * FLOPPY_STANDARD_CYLINDERS - 1) /
+++                                 (FLOPPY_HEADS * FLOPPY_STANDARD_CYLINDERS);
+++            u32 chs_track_size = FLOPPY_HEADS * FLOPPY_STANDARD_CYLINDERS *
+++                                 DISK_SECTOR_SIZE;
+++            padded_size = ((padded_size + chs_track_size - 1) /
+++                           chs_track_size) * chs_track_size;
+++        } else {
+++            // At or above 5160960 bytes: lock sectors/track at 63.
+++            *out_sectors_track = FLOPPY_MAX_SECTORS_TRACK;
+++            *out_cylinders = ((padded_size / DISK_SECTOR_SIZE) +
+++                              FLOPPY_HEADS * FLOPPY_MAX_SECTORS_TRACK - 1) /
+++                             (FLOPPY_HEADS * FLOPPY_MAX_SECTORS_TRACK);
+++            padded_size = FLOPPY_HEADS * (*out_cylinders) *
+++                          FLOPPY_MAX_SECTORS_TRACK * DISK_SECTOR_SIZE;
+++        }
+++
+++        if (padded_size > FLOPPY_MAX_BOOTABLE)
+++            dprintf(1, "Ramdisk too large: needs %d cylinders (max %d)\n",
+++                    *out_cylinders, FLOPPY_MAX_CYLINDERS);
+++        else
+++            dprintf(1, "Large ramdisk: %d heads * %d cylinders * %d sectors\n",
+++                    FLOPPY_HEADS, *out_cylinders, *out_sectors_track);
+++    } else {
+++        struct chs_s chs = {0};
+++        floppy_get_chs(ftype, &chs);
+++        *out_cylinders = chs.cylinder;
+++        *out_sectors_track = chs.sector;
+++    }
+++
+++    return padded_size;
+++}
+++
+++// Calculate padded size and determine final ftype.
+++static void
+++ramdisk_update_entry(struct ramdisk_entry *entry)
+++{
+++    u32 native_size = entry->file->size;
+++    u16 cylinders = FLOPPY_STANDARD_CYLINDERS;
+++    u16 sectors_track = FLOPPY_MAX_SECTORS_TRACK;
+++    u32 chs_size = ramdisk_align_size(native_size, &cylinders, &sectors_track);
+++
+++    // Always store geometry.
+++    entry->cylinders = cylinders;
+++    entry->sectors_track = sectors_track;
+++
+++    // Check if size exceeds maximum bootable size.
+++    if (chs_size > FLOPPY_MAX_BOOTABLE) {
+++        dprintf(1, "%s SKIP: is too large to be bootable (%u > %u bytes)\n",
+++                entry->file->name, chs_size, FLOPPY_MAX_BOOTABLE);
+++        entry->size = 0;
+++        entry->ftype = -1;
+++        return;
+++    }
+++
+++    int ftype = find_floppy_type(chs_size);
+++    if (ftype < 0) {
+++        // Custom geometry - not a standard floppy type.
+++        ftype = 0xFF;
+++        if (chs_size != native_size)
+++            dprintf(1, "%s: will be 0-padded from %u to %u bytes, ftype=%d\n",
+++                    entry->file->name, native_size, chs_size, ftype);
+++    }
+++
+++    entry->size  = chs_size;
+++    entry->ftype = ftype;
+++}
+++
+++// Count valid ramdisks and find max size for a given prefix.
+++static void
+++ramdisk_count_prefix(const char *prefix, int *count, u32 *max_size)
+++{
+++    struct romfile_s *file = NULL;
+++    while ((file = romfile_findprefix(prefix, file)) != NULL) {
+++        u16 dummy_cylinders;
+++        u16 dummy_sectors;
+++        u32 chs_size = ramdisk_align_size(file->size, &dummy_cylinders, &dummy_sectors);
+++        if (chs_size > FLOPPY_MAX_BOOTABLE) {
+++            dprintf(1, "%s SKIP: is too large to be bootable (%u > %u bytes)\n",
+++                    file->name, chs_size, FLOPPY_MAX_BOOTABLE);
+++            continue;
+++        }
+++        (*count)++;
+++        if (chs_size > *max_size)
+++            *max_size = chs_size;
+++    }
+++}
+++
+++// Extract ramdisk name from a path with a prefix like ramdisk/ or floppyimg/ .
+++// Returns pointer to name (after prefix), or NULL for the following reasons:
+++//   - Prefix doesn't match
+++//   - Name is empty (e.g., "ramdisk/")
+++//   - Name starts with '/' or '.' (broken path)
+++// Prints debug message for invalid ramdisk paths.
+++const char *
+++ramdisk_extract_name(const char *path, const char *prefix)
+++{
+++    size_t prefix_len = strlen(prefix);
+++
+++    // Check if path matches the given prefix
+++    if (memcmp(path, prefix, prefix_len) != 0)
+++        return NULL;
+++
+++    const char *name = path + prefix_len;
+++
+++    // Validate name (must not be empty or start with '/' or '.')
+++    if (name[0] == '\0' || name[0] == '/' || name[0] == '.') {
+++        dprintf(1, "Skipping broken ramdisk path: %s\n", path);
+++        return NULL;
+++    }
+++
+++    return name;
+++}
+++
+++// Populate pool array with valid ramdisks for a given prefix.
+++// Returns the updated pool_index after adding entries.
+++static int
+++ramdisk_populate_prefix(const char *prefix, struct ramdisk_entry *pool,
+++                        int pool_index)
+++{
+++    struct romfile_s *file = NULL;
+++    while ((file = romfile_findprefix(prefix, file)) != NULL) {
+++        u16 dummy_cylinders;
+++        u16 dummy_sectors;
+++        u32 chs_size = ramdisk_align_size(file->size, &dummy_cylinders, &dummy_sectors);
+++        if (chs_size > FLOPPY_MAX_BOOTABLE)
+++            continue;  // Skip oversized ramdisks
+++
+++        pool[pool_index].file = file;
+++        ramdisk_update_entry(&pool[pool_index]);
+++
+++        // Double-check: skip if entry was marked invalid.
+++        if (pool[pool_index].size == 0)
+++            continue;
+++
+++        if (pool[pool_index].ftype < 0) {
+++            dprintf(3, "%s: unknown ftype\n", file->name);
+++            pool[pool_index].ftype = 0xFF;
+++        }
+++
+++        const char *name = ramdisk_extract_name(file->name, prefix);
+++        pool[pool_index].name = name ?: file->name;
+++        dprintf(1, "Added to pool: %s (%u -> %u bytes, type %d, %d/%d/%d)\n",
+++                file->name, file->size, pool[pool_index].size, pool[pool_index].ftype,
+++                pool[pool_index].cylinders, FLOPPY_HEADS, pool[pool_index].sectors_track);
+++        pool_index++;
+++    }
+++    return pool_index;
+++}
+++
++ void
++ ramdisk_setup(void)
++ {
++     if (!CONFIG_FLASH_FLOPPY)
++         return;
++ 
++-    // Find image.
++-    struct romfile_s *file = romfile_findprefix("floppyimg/", NULL);
++-    if (!file)
++-        return;
++-    const char *filename = file->name;
++-    u32 size = file->size;
++-    dprintf(3, "Found floppy file %s of size %d\n", filename, size);
++-    int ftype = find_floppy_type(size);
++-    if (ftype < 0) {
++-        dprintf(3, "No floppy type found for ramdisk size\n");
+++    // First pass: count ONLY VALID ramdisks and find max size.
+++    int valid_ramdisk_count = 0;
+++    u32 ramdisk_max_size = 0;
+++
+++    ramdisk_count_prefix(RAMDISK_PREFIX, &valid_ramdisk_count, &ramdisk_max_size);
+++    ramdisk_count_prefix(FLOPPYIMG_PREFIX, &valid_ramdisk_count, &ramdisk_max_size);
+++
+++    // Check if we have ANY valid ramdisks before allocating.
+++    if (valid_ramdisk_count == 0) {
+++        dprintf(1, "No valid ramdisks found (all too large or none exist)\n");
++         return;
++     }
++ 
++-    // Allocate ram for image.
++-    void *pos = memalign_tmphigh(PAGE_SIZE, size);
++-    if (!pos) {
+++    // Allocate pool and shared buffer at persistent highmem.
+++    ramdisk_pool = malloc_high(valid_ramdisk_count *
+++                               sizeof(struct ramdisk_entry));
+++    if (!ramdisk_pool) {
++         warn_noalloc();
++         return;
++     }
++-    e820_add((u32)pos, size, E820_RESERVED);
++-
++-    // Copy image into ram.
++-    int ret = file->copy(file, pos, size);
++-    if (ret < 0)
+++    ramdisk_shared_buffer = memalign_high(PAGE_SIZE, ramdisk_max_size);
+++    if (!ramdisk_shared_buffer) {
+++        warn_noalloc();
+++        free(ramdisk_pool);
+++        ramdisk_pool = NULL;
++         return;
+++    }
+++    dprintf(3, "ramdisk_shared_buffer: allocated %u bytes\n", ramdisk_max_size);
+++
+++    // Second pass: populate pool array with ONLY valid ramdisks.
+++    int pool_index = 0;
+++
+++    pool_index = ramdisk_populate_prefix(  RAMDISK_PREFIX, ramdisk_pool, pool_index);
+++    pool_index = ramdisk_populate_prefix(FLOPPYIMG_PREFIX, ramdisk_pool, pool_index);
++ 
++-    // Setup driver.
++-    struct drive_s *drive = init_floppy((u32)pos, ftype);
++-    if (!drive)
+++    // Set final count (should match valid_ramdisk_count).
+++    ramdisk_pool_count = pool_index;
+++
+++    // Final sanity check: ensure we have at least one valid ramdisk.
+++    if (ramdisk_pool_count == 0) {
+++        dprintf(1, "No valid ramdisks found after second pass\n");
+++        free(ramdisk_pool);
+++        ramdisk_pool = NULL;
+++        free(ramdisk_shared_buffer);
+++        ramdisk_shared_buffer = NULL;
++         return;
++-    drive->type = DTYPE_RAMDISK;
++-    dprintf(1, "Mapping floppy %s to addr %p\n", filename, pos);
++-    char *desc = znprintf(MAXDESCSIZE, "Ramdisk [%s]", &filename[10]);
++-    boot_add_floppy(drive, desc, bootprio_find_named_rom(filename, 0));
+++    }
+++}
+++
+++// Boot the ramdisk entry chosen by its index.
+++int
+++ramdisk_boot(int pool_index, int checksig)
+++{
+++    if (pool_index < 0 || pool_index >= ramdisk_pool_count) {
+++        dprintf(1, "Invalid ramdisk pool index %d\n", pool_index);
+++        return -1;
+++    }
+++
+++    struct ramdisk_entry *entry = &ramdisk_pool[pool_index];
+++
+++    // Check if cylinders exceed maximum.
+++    if (entry->cylinders > FLOPPY_MAX_CYLINDERS) {
+++        dprintf(1, "Invalid ramdisk entry %d (requires %d cylinders, max %d)\n",
+++                pool_index, entry->cylinders, FLOPPY_MAX_CYLINDERS);
+++        printf("Ramdisk boot failed - image too large.\n\n");
+++        return -1;
+++    }
+++
+++    dprintf(1, "Booting a ramdisk: %s (%u bytes, type=%d)\n",
+++            entry->file->name, entry->size, entry->ftype);
+++
+++    if (entry->file->copy(entry->file, ramdisk_shared_buffer,
+++                          entry->file->size) < 0) {
+++        dprintf(1, "Failed to copy ramdisk image %s\n", entry->file->name);
+++        return -1;
+++    }
+++    dprintf(1, "Copied %u bytes from ROM to RAM\n", entry->file->size);
+++
+++    // Zero-pad to prevent reading garbage beyond file.
+++    if (entry->size > entry->file->size) {
+++        memset((u8*)ramdisk_shared_buffer + entry->file->size, 0,
+++               entry->size - entry->file->size);
+++        dprintf(1, "Zero-padded %u bytes (sector alignment + padding)\n",
+++                entry->size - entry->file->size);
+++    }
+++
+++    // Save original floppy state BEFORE overwriting.
+++    struct drive_s *saved_floppy0 = IDMap[EXTTYPE_FLOPPY][0];
+++    u8 saved_floppy_count = FloppyCount;
+++    u16 saved_equipment = GET_BDA(equipment_list_flags);
+++    u8 saved_floppy_hd_info = GET_BDA(floppy_harddisk_info);
+++    // Save BDA flags for physical floppy state restoration.
+++    u8 saved_recal_status = GET_BDA(floppy_recalibration_status);
+++    u8 saved_media_state0 = GET_BDA(floppy_media_state[0]);
+++    u8 saved_track0 = GET_BDA(floppy_track[0]);
+++    u8 saved_motor_counter = GET_BDA(floppy_motor_counter);
+++    u8 saved_last_data_rate = GET_BDA(floppy_last_data_rate);
+++
+++    // Setup ramdisk fields.
+++    ramdisk.cntl_id = (u32)ramdisk_shared_buffer;
+++    ramdisk.type = DTYPE_RAMDISK;
+++    ramdisk.blksize = DISK_SECTOR_SIZE;
+++    ramdisk.floppy_type = entry->ftype;
+++    ramdisk.sectors = entry->size / DISK_SECTOR_SIZE;
+++
+++    // Set geometry - use floppy_get_chs() for standard types,
+++    // or pre-calculated values for custom geometries (ftype = 0xFF).
+++    if (floppy_get_chs(entry->ftype, &ramdisk.lchs) < 0) {
+++        // Custom geometry - use pre-calculated values from entry.
+++        ramdisk.lchs.head = FLOPPY_HEADS;
+++        ramdisk.lchs.cylinder = entry->cylinders;
+++        ramdisk.lchs.sector = entry->sectors_track;
+++        dprintf(1, "Calculated CHS: %d/%d/%d (from padded size)\n",
+++                ramdisk.lchs.cylinder, ramdisk.lchs.head, ramdisk.lchs.sector);
+++    }
+++
+++    // Directly map ramdisk as floppy drive 0x00. This ensures ramdisk is always
+++    // drive 0x00, even if the real FDDs were registered earlier by floppy_setup().
+++    // Direct assignment (not append) prevents accumulation of mappings.
+++    IDMap[EXTTYPE_FLOPPY][0] = &ramdisk;
+++    FloppyCount = 1;
+++
+++    // Update equipment word to indicate one floppy drive present.
+++    // This is required for INT 0x13 and bootloaders to recognize drive 0x00.
+++    // Bits 6-7: number of floppy drives (0=1, 1=2, 2=3, 3=4)
+++    // Bit 0: floppy drive installed (must be set)
+++    set_equipment_flags(0x41, 0x01);
+++
+++    // Update floppy_harddisk_info: bits 0-3 = floppy count, bits 4-7 = HD.
+++    // 0x07 = 1 floppy (bits 0-3 = 0x07 means "floppy drives present").
+++    SET_BDA(floppy_harddisk_info, 0x07);
+++
+++    // Mark floppy drive 0 as ready and with established media.
+++    // This prevents the floppy driver from calling floppy_media_sense(),
+++    // which would cause an out-of-bounds access if ftype = 0xFF (custom floppy)
+++    // The geometry stored in ramdisk.lchs will be used directly for all I/O.
+++    SET_BDA(floppy_recalibration_status, (1 << 0));  // Drive 0 recalibrated
+++    SET_BDA(floppy_track[0], 0);
+++
+++    // Initialize floppy_return_status to zeros (no FDC status for ramdisk).
+++    // Some legacy software might read this expecting valid data.
+++    for (int i = 0; i < 7; i++)
+++        SET_BDA(floppy_return_status[i], 0);
+++
+++    // Determine FDC data rate. Standard types use FloppyInfo[] table via
+++    // floppy_get_data_rate(). Custom types (ftype=0xFF) use size threshold.
+++    u8 data_rate;
+++    int rate = floppy_get_data_rate(entry->ftype);
+++    if (rate >= 0) {
+++        // Standard floppy type - use SeaBIOS FloppyInfo[] table.
+++        data_rate = rate;
+++    } else {
+++        // Custom geometry (ftype=0xFF) - use size threshold.
+++        data_rate = (entry->size > FLOPPY_1_44MB) ? FLOPPY_RATE_1M : FLOPPY_RATE_500K;
+++    }
+++
+++    // Set FDC data rate via CCR register at port 0x03f7 (PORT_FD_DIR).
+++    outb(data_rate, PORT_FD_DIR);
+++
+++    // Store rate in BDA (upper 2 bits, like SeaBIOS floppy_media_sense)
+++    // Format: bits 7-6 = data_rate, bit 5 = established, bits 2-4 = media type
+++    u8 fms = (data_rate << 6) | FMS_MEDIA_DRIVE_ESTABLISHED | 0x07;
+++    SET_BDA(floppy_media_state[0], fms);
+++
+++    // Store last data rate (lower 2 bits)
+++    SET_BDA(floppy_last_data_rate, data_rate << 6);
+++
+++    dprintf(3, "Ramdisk: FDC rate set to %s (type=%d)\n",
+++            data_rate == FLOPPY_RATE_1M ? "1Mbps" :
+++            data_rate == FLOPPY_RATE_250K ? "250Kbps" :
+++            data_rate == FLOPPY_RATE_300K ? "300Kbps" : "500Kbps",
+++            entry->ftype);
+++
+++    // Set motor counter to prevent motor timeout during boot.
+++    // SeaBIOS sets this to 255 when motor starts, FLOPPY_MOTOR_TICKS after op.
+++    // We set it to a high value to ensure motor stays "on" during boot.
+++    SET_BDA(floppy_motor_counter, 255);
+++
+++    // Setup Diskette Parameter Table (DPT) for ALL ramdisk types.
+++    // Use diskette_param_table2 from util.h (no need to replicate).
+++    // Update sectors field to match our ramdisk geometry.
+++    if (!int1e_vector_saved) {
+++        // Save original INT 1Eh vector.
+++        saved_int1e_vector = GET_IVT(0x1E);
+++        int1e_vector_saved = 1;
+++        // Save original DPT sectors value (for restoration on failure).
+++        saved_dpt_sectors = diskette_param_table2.dbt.sectors;
+++        // Update DPT sectors field to match our ramdisk geometry.
+++        diskette_param_table2.dbt.sectors = entry->sectors_track;
+++        // Set INT 1Eh vector to point to SeaBIOS's DPT.
+++        SET_IVT(0x1E, SEGOFF(SEG_BIOS, (u32)&diskette_param_table2 - BUILD_BIOS_ADDR));
+++        dprintf(3, "Ramdisk: INT 1Eh DPT set (sectors=%d)\n",
+++                diskette_param_table2.dbt.sectors);
+++    }
+++
+++    // Boot IMMEDIATELY, before PMM finalize.
+++    boot_disk(0x00, checksig);
+++
+++    // If we get here, boot FAILED - restore original floppy state.
+++    // Stack-local variables ensure correct restoration even in recursive calls.
+++    IDMap[EXTTYPE_FLOPPY][0] = saved_floppy0;
+++    FloppyCount = saved_floppy_count;
+++    SET_BDA(equipment_list_flags, saved_equipment);
+++    SET_BDA(floppy_harddisk_info, saved_floppy_hd_info);
+++    // Restore BDA flags for physical floppy.
+++    SET_BDA(floppy_recalibration_status, saved_recal_status);
+++    SET_BDA(floppy_media_state[0], saved_media_state0);
+++    SET_BDA(floppy_track[0], saved_track0);
+++    SET_BDA(floppy_motor_counter, saved_motor_counter);
+++    SET_BDA(floppy_last_data_rate, saved_last_data_rate);
+++
+++    // Restore original INT 1Eh vector if we changed it.
+++    if (int1e_vector_saved) {
+++        SET_IVT(0x1E, saved_int1e_vector);
+++        // Restore original DPT sectors value.
+++        diskette_param_table2.dbt.sectors = saved_dpt_sectors;
+++        int1e_vector_saved = 0;
+++        dprintf(3, "Ramdisk: INT 1Eh vector restored\n");
+++    }
+++
+++    printf("Ramdisk boot failed.\n\n");
+++    return -1;
+++}
+++
+++// Find a ramdisk index at ramdisk pool by name.
+++int
+++ramdisk_find_by_name(const char *name)
+++{
+++    if (!name || !ramdisk_pool || !ramdisk_pool_count)
+++        return -1;
+++
+++    for (int i = 0; i < ramdisk_pool_count; i++) {
+++        if (strcmp(ramdisk_pool[i].name, name) == 0)
+++            return i;
+++    }
+++    return -1;
+++}
+++
+++// Get a ramdisk name for menu display.
+++const char *
+++ramdisk_get_name(int pool_index)
+++{
+++    if (pool_index < 0 || pool_index >= ramdisk_pool_count)
+++        return NULL;
+++    return ramdisk_pool[pool_index].name;
+++}
+++
+++// Get a count of valid (<=63MB) ramdisks for menu display (>63MB are filtered).
+++int
+++ramdisk_get_count(void)
+++{
+++    return ramdisk_pool_count;
++ }
++ 
++ static int
++@@ -68,6 +515,7 @@ ramdisk_copy(struct disk_op_s *op, int iswrite)
++     u64 ramd = GDT_DATA | GDT_LIMIT(0xfffff) | GDT_BASE(offset);
++ 
++     u64 gdt[6];
+++    memset(gdt, 0, sizeof(gdt));
++     if (iswrite) {
++         gdt[2] = opd;
++         gdt[3] = ramd;
++diff --git a/src/util.h b/src/util.h
++index 6679b0ae..f9a33998 100644
++--- a/src/util.h
+++++ b/src/util.h
++@@ -27,6 +27,7 @@ void boot_add_cd(struct drive_s *drive_g, const char *desc, int prio);
++ void boot_add_cbfs(void *data, const char *desc, int prio);
++ void interactive_bootmenu(void);
++ void bcv_prepboot(void);
+++void boot_disk(u8 bootdrv, int checksig);
++ u8 is_bootprio_strict(void);
++ struct pci_device;
++ int bootprio_find_pci_device(struct pci_device *pci);
++@@ -175,7 +176,12 @@ int floppy_process_op(struct disk_op_s *op);
++ void floppy_tick(void);
++ 
++ // hw/ramdisk.c
+++const char *ramdisk_extract_name(const char *path, const char *prefix);
++ void ramdisk_setup(void);
+++int ramdisk_boot(int pool_index, int checksig);
+++int ramdisk_find_by_name(const char *name);
+++const char *ramdisk_get_name(int pool_index);
+++int ramdisk_get_count(void);
++ int ramdisk_process_op(struct disk_op_s *op);
++ 
++ // hw/sdcard.c
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0010-boot-Reorganize-boot-menu-keyboard-layout-to-QWERTY-order-with-TPM-on-m-key.patch b/payloads/external/SeaBIOS/0010-boot-Reorganize-boot-menu-keyboard-layout-to-QWERTY-order-with-TPM-on-m-key.patch
+new file mode 100644
+index 0000000..0ba3d82
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0010-boot-Reorganize-boot-menu-keyboard-layout-to-QWERTY-order-with-TPM-on-m-key.patch
+@@ -0,0 +1,120 @@
++boot: Reorganize boot menu keyboard layout to QWERTY order with TPM on m key
++
++Replace the alphabetical menu key layout with QWERTY keyboard order for more
++intuitive key selection. The new layout follows standard keyboard row order:
++numbers (1-0), then QWERTY rows (q-p, a-l, z-n), supporting 35 boot entries
++total. Move TPM menu from t key to m key - the last usable key at the end of
++the last usable keyboard row, to avoid mixing it with the regular menu entries.
++
++Rename menuchars[] to keyboard_keys[] to clarify this array represents physical
++keyboard layout rather than abstract menu characters. This prepares the codebase
++for upcoming numpad support addition with a separate logic for numpad key input.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/boot.c | 33 ++++++++++++++++-----------------
++ 1 file changed, 16 insertions(+), 17 deletions(-)
++
++diff --git a/src/boot.c b/src/boot.c
++index 8ebf5edc..55308865 100644
++--- a/src/boot.c
+++++ b/src/boot.c
++@@ -746,12 +746,11 @@ int BootSequence VARLOW = -1;
++ 
++ #define DEFAULT_BOOTMENU_WAIT 2500
++ 
++-static const char menuchars[] = {
++-    '1', '2', '3', '4', '5', '6', '7', '8', '9',
++-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i',
++-    'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r',
++-    's', /* skip t (tpm menu) */
++-    'u', 'v', 'w', 'x', 'y', 'z'
+++static const char keyboard_keys[] = {
+++    '1','2','3','4','5','6','7','8','9','0',
+++     'q','w','e','r','t','y','u','i','o','p',
+++      'a','s','d','f','g','h','j','k','l',
+++       'z','x','c','v','b','n' /* 'm' = TPM */
++ };
++ 
++ // Prepare merged boot menu with ramdisks and BootList entries
++@@ -766,7 +765,7 @@ prepare_bootmenu(struct menu_entry *entries, int *count)
++ 
++     // 1. Add ramdisks with bootorder priority or default.
++     int pool_count = ramdisk_get_count();
++-    for (int i = 0; i < pool_count && menu_count < ARRAY_SIZE(menuchars); i++) {
+++    for (int i = 0; i < pool_count && menu_count < ARRAY_SIZE(keyboard_keys); i++) {
++         const char *name = ramdisk_get_name(i);
++         if (!name)
++             continue;
++@@ -796,7 +795,7 @@ prepare_bootmenu(struct menu_entry *entries, int *count)
++     // 2. Add BootList entries.
++     struct bootentry_s *pos;
++     hlist_for_each_entry(pos, &BootList, node) {
++-        if (menu_count >= ARRAY_SIZE(menuchars))
+++        if (menu_count >= ARRAY_SIZE(keyboard_keys))
++             break;
++ 
++         entries[menu_count].is_ramdisk = 0;
++@@ -904,17 +903,17 @@ print_bootmenu(struct menu_entry *entries, int menu_count)
++     for (int i = 0; i < menu_count; i++) {
++         char desc[77];
++         if (entries[i].is_ramdisk) {
++-            printf("%c. Ramdisk [%s]\n", menuchars[i],
+++            printf("%c. Ramdisk [%s]\n", keyboard_keys[i],
++                    ramdisk_get_name(entries[i].ramdisk_pool_index));
++         } else {
++-            printf("%c. %s\n", menuchars[i],
+++            printf("%c. %s\n", keyboard_keys[i],
++                    strtcpy(desc, entries[i].bootlist_entry->description,
++                            ARRAY_SIZE(desc)));
++         }
++     }
++ 
++     if (tpm_can_show_menu())
++-        printf("\nt. TPM Configuration\n");
+++        printf("\nm. TPM Configuration\n");
++ 
++     printf("\n> ");
++ }
++@@ -942,7 +941,7 @@ interactive_bootmenu(void)
++     wait_threads();
++ 
++     // Prepare merged menu FIRST (before any early returns).
++-    struct menu_entry entries[ARRAY_SIZE(menuchars)];
+++    struct menu_entry entries[ARRAY_SIZE(keyboard_keys)];
++     int menu_count;
++     prepare_bootmenu(entries, &menu_count);
++ 
++@@ -1002,7 +1001,7 @@ interactive_bootmenu(void)
++         }
++ 
++         if (! is_menukey(key_scan, menukey)) {
++-            if (tpm_can_show_menu() && key_ascii == 't') {
+++            if (tpm_can_show_menu() && key_ascii == 'm') {
++                 clear_keyboard_buffer();
++                 printf("\n");
++                 tpm_menu();
++@@ -1010,8 +1009,8 @@ interactive_bootmenu(void)
++             } else {
++                 // Non-menukey pressed - check ALL menu entries.
++                 for (int i = 0; i < menu_count; i++) {
++-                    if (key_ascii == menuchars[i]) {
++-                        printf("\n\n> %c\n", menuchars[i]);
+++                    if (key_ascii == keyboard_keys[i]) {
+++                        printf("\n\n> %c\n", keyboard_keys[i]);
++                         apply_boot_selection(i, entries, menu_count);
++                         free_ramdisk_bootorder_list();
++                         return;
++@@ -1057,8 +1056,8 @@ interactive_bootmenu(void)
++ 
++         // Check key press against prepared menu list.
++         for (int i = 0; i < menu_count; i++) {
++-            if (key_ascii == menuchars[i]) {
++-                printf("%c\n", menuchars[i]);
+++            if (key_ascii == keyboard_keys[i]) {
+++                printf("%c\n", keyboard_keys[i]);
++                 apply_boot_selection(i, entries, menu_count);
++                 free_ramdisk_bootorder_list();
++                 return;
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0011-boot-Add-paging-support-for-boot-menu-to-prevent-scroll-overflow.patch b/payloads/external/SeaBIOS/0011-boot-Add-paging-support-for-boot-menu-to-prevent-scroll-overflow.patch
+new file mode 100644
+index 0000000..91598f4
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0011-boot-Add-paging-support-for-boot-menu-to-prevent-scroll-overflow.patch
+@@ -0,0 +1,92 @@
++boot: Add paging support for boot menu to prevent scroll overflow
++
++When the boot menu contains too many entries, the previous implementation would
++print all entries sequentially, causing early entries to scroll off-screen. This
++made top-priority boot devices invisible to users, defeating the purpose of the
++boot menu. Users could not see how to choose the devices that scrolled away.
++
++This change implements two-page navigation with Enter key switching. If the
++quantity of boot menu entries exceeds BOOTMENU_PAGE_SIZE (18), entries are split
++across two pages with a page indicator in the header. All entries remain
++selectable by their keyboard key regardless of visible page. TPM menu ('m' key)
++remains accessible from any page. A new helper function display_menu_page()
++eliminates code duplication between initial display and refresh operations.
++
++This ensures all boot devices remain visible, supporting up to 35 boot menu
++entries (plus TPM) while keeping the menu readable on 80x25 text mode displays.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/boot.c | 33 ++++++++++++++++++++++++++++-----
++ 1 file changed, 28 insertions(+), 5 deletions(-)
++
++diff --git a/src/boot.c b/src/boot.c
++index 55308865..1535a093 100644
++--- a/src/boot.c
+++++ b/src/boot.c
++@@ -895,12 +895,19 @@ boot_first_device(struct menu_entry *entries, int menu_count)
++     // (in bootorder priority, with fallback to next physical on failure)
++ }
++ 
+++#define BOOTMENU_PAGE_SIZE 18
+++
++ static void
++-print_bootmenu(struct menu_entry *entries, int menu_count)
+++print_bootmenu_page(struct menu_entry *entries, int page_start, int page_end,
+++                  int paging_enabled, int page_num)
++ {
++-    printf("\n\nSelect boot device:\n\n");
+++    printf("\n\nSelect boot device");
+++    if (paging_enabled)
+++        printf(" - page %d/2 : // press ENTER to switch between the pages...\n\n", page_num);
+++    else
+++        printf(":\n\n");
++ 
++-    for (int i = 0; i < menu_count; i++) {
+++    for (int i = page_start; i < page_end; i++) {
++         char desc[77];
++         if (entries[i].is_ramdisk) {
++             printf("%c. Ramdisk [%s]\n", keyboard_keys[i],
++@@ -1021,7 +1028,14 @@ interactive_bootmenu(void)
++         }
++     }
++ 
++-    print_bootmenu(entries, menu_count);
+++    // Determine if paging is needed to accomodate our numerous entries.
+++    int paging_enabled = (menu_count > BOOTMENU_PAGE_SIZE);
+++    int page_num = 1;
+++    int page_start = 0;
+++    int page_end = (paging_enabled ? BOOTMENU_PAGE_SIZE : menu_count);
+++
+++    // Show initial menu display.
+++    print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
++ 
++     // Get key press.  If the menu key is ESC, do not restart boot unless
++     // 1.5 seconds have passed.  Otherwise users (trained by years of
++@@ -1044,7 +1058,7 @@ interactive_bootmenu(void)
++             printf("\n");
++             tpm_menu();
++             printf("\n");
++-            print_bootmenu(entries, menu_count);
+++            print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
++             continue;
++         }
++ 
++@@ -1054,6 +1068,15 @@ interactive_bootmenu(void)
++             return;
++         }
++ 
+++        // Enter key: switch between the pages if paging is enabled.
+++        if (key_scan == 28 && paging_enabled) {
+++            page_num = 3 - page_num;  // Toggle: 1 --> 2, 2 --> 1
+++            page_start = (page_num == 1) ? 0 : BOOTMENU_PAGE_SIZE;
+++            page_end = (page_num == 1) ? BOOTMENU_PAGE_SIZE : menu_count;
+++            print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
+++            continue;
+++        }
+++
++         // Check key press against prepared menu list.
++         for (int i = 0; i < menu_count; i++) {
++             if (key_ascii == keyboard_keys[i]) {
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0012-boot-Add-advanced-numpad-input-and-dual-function-Enter-key-support.patch b/payloads/external/SeaBIOS/0012-boot-Add-advanced-numpad-input-and-dual-function-Enter-key-support.patch
+new file mode 100644
+index 0000000..c9424a2
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0012-boot-Add-advanced-numpad-input-and-dual-function-Enter-key-support.patch
+@@ -0,0 +1,308 @@
++boot: Add advanced numpad input and dual-function Enter key support
++
++Implement full numeric keypad support with distinct modes based on list size.
++For ten or fewer entries, single digits trigger immediate boot, mapping zero to
++the tenth slot. Larger lists enable multi-digit entry (up to 35) with real-time
++visual feedback showing the selected index and corresponding keyboard key hint.
++
++Enhance navigation by allowing rapid scrolling through options using the Numpad
++Plus and Minus keys to increment or decrement the selection number instantly.
++The Enter key adapts dynamically to context, toggling pages when idle or
++confirming the pending numpad selection, while Numpad Star opens the TPM menu.
++
++Refresh the on-screen help text to explicitly advertise slash and backslash as
++menu triggers alongside detailed numpad usage instructions. The display now
++dynamically updates to show page numbers, current selection hints, and clear
++prompts for entering or confirming choices, ensuring users always see exactly
++how to interact with the expanded boot list regardless of device count.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/boot.c | 198 +++++++++++++++++++++++++++++++++++++++++++++++++----
++ 1 file changed, 183 insertions(+), 15 deletions(-)
++
++diff --git a/src/boot.c b/src/boot.c
++index 1535a093..0a4324cc 100644
++--- a/src/boot.c
+++++ b/src/boot.c
++@@ -753,6 +753,11 @@ static const char keyboard_keys[] = {
++        'z','x','c','v','b','n' /* 'm' = TPM */
++ };
++ 
+++static const int numpad_scancodes[] = {
+++    82, 79, 80, 81, 75, 76, 77, 71, 72, 73
+++  /* 0,  1,  2,  3,  4,  5,  6,  7,  8,  9 */
+++};
+++
++ // Prepare merged boot menu with ramdisks and BootList entries
++ // (physical devices and secondary payloads), sorted by priority.
++ // Populates entries[] array and returns count via pointer.
++@@ -902,10 +907,13 @@ print_bootmenu_page(struct menu_entry *entries, int page_start, int page_end,
++                   int paging_enabled, int page_num)
++ {
++     printf("\n\nSelect boot device");
++-    if (paging_enabled)
++-        printf(" - page %d/2 : // press ENTER to switch between the pages...\n\n", page_num);
++-    else
+++    if (paging_enabled) {
+++        printf(" - page %d/2 : // press ENTER after your numpad input if any -\n", page_num);
+++        printf("                  ");
+++        printf( "              // - or to switch between the pages...\n\n");
+++    } else {
++         printf(":\n\n");
+++    }
++ 
++     for (int i = page_start; i < page_end; i++) {
++         char desc[77];
++@@ -920,7 +928,7 @@ print_bootmenu_page(struct menu_entry *entries, int page_start, int page_end,
++     }
++ 
++     if (tpm_can_show_menu())
++-        printf("\nm. TPM Configuration\n");
+++        printf("\nm. TPM Configuration ( *. on numpad )\n");
++ 
++     printf("\n> ");
++ }
++@@ -936,7 +944,19 @@ static int
++ is_menukey(int key_scan, int menukey)
++ {
++     return key_scan == menukey ||
++-           key_scan ==   1;    // Escape key
+++           key_scan ==   1 ||  // Escape key
+++           key_scan ==  43 ||  // '\' on keyboard
+++           key_scan ==  53 ||  // '/' on keyboard
+++           key_scan ==  98;    // '/' on numpad
+++}
+++
+++static int
+++get_numpad_number(int key_scan)
+++{
+++    for (int i = 0; i < ARRAY_SIZE(numpad_scancodes); i++)
+++        if (key_scan == numpad_scancodes[i])
+++            return i;
+++    return -1;
++ }
++ 
++ // Show IPL option menu.
++@@ -988,9 +1008,11 @@ interactive_bootmenu(void)
++     int keystroke;
++     int key_ascii;
++     int key_scan;
+++    int numpad_choice = 0;
+++    int numpad_number;
++     if (menutime >= 0) {
++         char *bootmsg = romfile_loadfile("etc/boot-menu-message", NULL);
++-        printf("%s", bootmsg ?: "\nPress ESC for boot menu.");
+++        printf("%s", bootmsg ?: "\nPress ESC or \\ / slash for boot menu.");
++         free(bootmsg);
++ 
++         enable_bootsplash();
++@@ -1008,7 +1030,9 @@ interactive_bootmenu(void)
++         }
++ 
++         if (! is_menukey(key_scan, menukey)) {
++-            if (tpm_can_show_menu() && key_ascii == 'm') {
+++            // Supports 'm' keyboard key and '*' numpad key.
+++            if (tpm_can_show_menu() &&  // '*' on numpad
+++                (key_ascii == 'm' || key_scan == 55)) {
++                 clear_keyboard_buffer();
++                 printf("\n");
++                 tpm_menu();
++@@ -1023,11 +1047,25 @@ interactive_bootmenu(void)
++                         return;
++                     }
++                 }
+++                if (menu_count <= 10) {
+++                    numpad_number = get_numpad_number(key_scan);
+++                    if (numpad_number >= 0) {
+++                        numpad_choice = (numpad_number == 0) ? 10 : numpad_number;
+++                        if (numpad_choice <= menu_count) {
+++                            printf("\n\n> %c\n", keyboard_keys[numpad_choice - 1]);
+++                            apply_boot_selection(numpad_choice - 1, entries, menu_count);
+++                            free_ramdisk_bootorder_list();
+++                            return;
+++                        }
+++                    }
+++                }
++                 printf("\n\nNo key matched - fall through to show menu.");
++             }
++         }
++     }
++ 
+++    numpad_choice = 0;
+++
++     // Determine if paging is needed to accomodate our numerous entries.
++     int paging_enabled = (menu_count > BOOTMENU_PAGE_SIZE);
++     int page_num = 1;
++@@ -1053,12 +1091,15 @@ interactive_bootmenu(void)
++         if (keystroke < 0) // timeout
++             continue;
++ 
++-        if (tpm_can_show_menu() && key_ascii == 't') {
+++        // Supports 'm' keyboard key and '*' numpad key.
+++        if (tpm_can_show_menu() &&  // '*' on numpad
+++            (key_ascii == 'm' || key_scan == 55)) {
++             clear_keyboard_buffer();
++             printf("\n");
++             tpm_menu();
++             printf("\n");
++             print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
+++            numpad_choice = 0;
++             continue;
++         }
++ 
++@@ -1068,18 +1109,145 @@ interactive_bootmenu(void)
++             return;
++         }
++ 
++-        // Enter key: switch between the pages if paging is enabled.
++-        if (key_scan == 28 && paging_enabled) {
++-            page_num = 3 - page_num;  // Toggle: 1 --> 2, 2 --> 1
++-            page_start = (page_num == 1) ? 0 : BOOTMENU_PAGE_SIZE;
++-            page_end = (page_num == 1) ? BOOTMENU_PAGE_SIZE : menu_count;
++-            print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
+++        // Enter key: switch between the pages if paging is enabled,
+++        // or confirm the numpad choice if more than 10 menu entries.
+++        if (key_scan == 28 || key_scan == 96) {
+++            if (paging_enabled && numpad_choice == 0) {
+++                page_num = 3 - page_num;  // Toggle: 1 --> 2, 2 --> 1
+++                page_start = (page_num == 1) ? 0 : BOOTMENU_PAGE_SIZE;
+++                page_end   = (page_num == 1) ? BOOTMENU_PAGE_SIZE : menu_count;
+++                print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
+++            } else {
+++                if (numpad_choice) {
+++                    // Numpad choice confirmed.
+++                    if (numpad_choice <= menu_count) {
+++                        // Choice is within the acceptable range.
+++                        if (numpad_choice < 10)
+++                            printf("\n");
+++                        else
+++                            printf("(%c)\n", keyboard_keys[numpad_choice - 1]);
+++                        apply_boot_selection(numpad_choice - 1, entries, menu_count);
+++                        free_ramdisk_bootorder_list();
+++                        return;
+++                    } else {
+++                        // Invalid choice - clear and continue.
+++                        if (numpad_choice < 10)
+++                            printf("\b \b");
+++                        else
+++                            printf("\b\b     \b\b\b\b\b");
+++                        numpad_choice = 0;
+++                    }
+++                }
+++            }
+++            continue;
+++        }
+++
+++        // Numpad digit input (0-9).
+++        numpad_number = get_numpad_number(key_scan);
+++        if (numpad_number >= 0) {
+++            if (menu_count <= 10) {
+++                // Single-digit mode (<=10 entries): boot immediately.
+++                numpad_choice = (numpad_number == 0) ? 10 : numpad_number;
+++                if (numpad_choice <= menu_count) {
+++                    printf("%c\n", keyboard_keys[numpad_choice - 1]);
+++                    apply_boot_selection(numpad_choice - 1, entries, menu_count);
+++                    free_ramdisk_bootorder_list();
+++                    return;
+++                } else {
+++                    numpad_choice = 0;
+++                }
+++            } else {
+++                if (numpad_choice < 10) {
+++                    numpad_choice = numpad_choice * 10 + numpad_number;
+++                    if (numpad_choice == 0) {
+++                        numpad_choice = 10;
+++                        printf("1");
+++                        // Remaining "0" and "(*)" decoding - will be printed by the code below.
+++                    }
+++                    if (numpad_choice < 10) {
+++                        // Single digit: just print.
+++                        printf("%d", numpad_choice);
+++                    } else {
+++                        // Double digits: print both digits and "(*)" decoding.
+++                        if (numpad_choice <= menu_count)
+++                            printf("%d(%c)\b\b\b", numpad_number, keyboard_keys[numpad_choice - 1]);
+++                        else
+++                            printf("%d(?)\b\b\b",  numpad_number);
+++                    }
+++                }
+++            }
+++            continue;
+++        }
+++
+++        // Backspace handling ('<-' 14, 'Delete' 111, numpad '.Del' 83).
+++        if ((key_scan == 14 || key_scan == 111 || key_scan == 83)
+++            && numpad_choice > 0) {
+++            numpad_choice = numpad_choice / 10;
+++            // Double digits to single digit: remove "(*)" decoding.
+++            if (numpad_choice >= 1)
+++                printf("\b    \b\b\b\b");
+++            else
+++                printf("\b \b");
+++            continue;
+++        }
+++
+++        // Numpad '-' key: decrement choice (if choice > 0).
+++        if (key_scan == 74 && numpad_choice > 0) {
+++            numpad_choice--;
+++            if (numpad_choice == 0) {
+++                // Gone to zero - remove the input.
+++                printf("\b \b");
+++            } else {
+++                if (numpad_choice >= 10) {
+++                    // Double digits: update both digits and "(*)" decoding.
+++                    if (numpad_choice > menu_count)
+++                        numpad_choice = menu_count;
+++                    printf("\b\b%d(%c)\b\b\b", numpad_choice, keyboard_keys[numpad_choice - 1]);
+++                } else {
+++                    if (numpad_choice == 9) {
+++                        // 10 --> 9 transition: clear "10" and decode, print "9".
+++                        printf("\b    \b\b\b\b\b9");
+++                    } else {
+++                        // Single digit: just overwrite.
+++                        printf("\b%d", numpad_choice);
+++                    }
+++                }
+++            }
+++            continue;
+++        }
+++
+++        // Numpad '+' key: increment choice (if choice < max).
+++        if (key_scan == 78 && numpad_choice < menu_count) {
+++            numpad_choice++;
+++            if (numpad_choice == 1) {
+++                // No input yet - start at 1.
+++                printf("1");
+++            } else {
+++                if (numpad_choice >= 10) {
+++                    if (numpad_choice == 10) {
+++                        // 9 --> 10 transition: backspace over single digit, print "10".
+++                        printf("\b10(0)\b\b\b");
+++                    } else {
+++                        // Double digits: update both digits and "(*)" decoding.
+++                        printf("\b\b%d(%c)\b\b\b", numpad_choice, keyboard_keys[numpad_choice - 1]);
+++                    }
+++                } else {
+++                    // Single digit: just overwrite.
+++                    printf("\b%d", numpad_choice);
+++                }
+++            }
++             continue;
++         }
++ 
++-        // Check key press against prepared menu list.
+++        // Check keyboard key press against prepared menu list.
++         for (int i = 0; i < menu_count; i++) {
++             if (key_ascii == keyboard_keys[i]) {
+++                if (numpad_choice > 0) {
+++                    if (numpad_choice < 10)
+++                        printf("\b");
+++                    else
+++                        printf("\b    \b\b\b\b\b");
+++                }
++                 printf("%c\n", keyboard_keys[i]);
++                 apply_boot_selection(i, entries, menu_count);
++                 free_ramdisk_bootorder_list();
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/0013-boot-Increase-menu-timeout-and-ESC-delay-for-slow-display-compatibility.patch b/payloads/external/SeaBIOS/0013-boot-Increase-menu-timeout-and-ESC-delay-for-slow-display-compatibility.patch
+new file mode 100644
+index 0000000..f56e541
+--- /dev/null
++++ b/payloads/external/SeaBIOS/0013-boot-Increase-menu-timeout-and-ESC-delay-for-slow-display-compatibility.patch
+@@ -0,0 +1,43 @@
++boot: Increase menu timeout and ESC delay for slow-display compatibility
++
++Extend the default boot menu wait time to 9 seconds and the ESC key
++acceptance delay to 3 seconds. These adjustments accommodate systems with
++slow display initialization, ensuring the menu is fully visible before
++timeout or accidental dismissal. The longer delays prevent users from
++missing the prompt on sluggish screens and reduce the risk of unintended
++boots caused by habitual key mashing during the display warm-up period.
++
++Signed-off-by: Mike Banon <mikebdp2@gmail.com>
++---
++ src/boot.c | 7 ++++---
++ 1 file changed, 4 insertions(+), 3 deletions(-)
++
++diff --git a/src/boot.c b/src/boot.c
++index 0a4324cc..1800dc7a 100644
++--- a/src/boot.c
+++++ b/src/boot.c
++@@ -744,7 +744,8 @@ get_keystroke(int msec)
++ 
++ int BootSequence VARLOW = -1;
++ 
++-#define DEFAULT_BOOTMENU_WAIT 2500
+++#define DEFAULT_BOOTMENU_WAIT 9000
+++#define ESC_ACCEPTED_TIME     3000
++ 
++ static const char keyboard_keys[] = {
++     '1','2','3','4','5','6','7','8','9','0',
++@@ -1076,10 +1077,10 @@ interactive_bootmenu(void)
++     print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
++ 
++     // Get key press.  If the menu key is ESC, do not restart boot unless
++-    // 1.5 seconds have passed.  Otherwise users (trained by years of
+++    // three seconds have passed.  Otherwise users (trained by years of
++     // repeatedly hitting keys to enter the BIOS) will end up hitting ESC
++     // multiple times and immediately booting the primary boot device.
++-    int esc_accepted_time = irqtimer_calc(menukey == 1 ? 1500 : 0);
+++    int esc_accepted_time = irqtimer_calc(menukey == 1 ? ESC_ACCEPTED_TIME : 0);
++     for (;;) {
++         clear_keyboard_buffer();
++         keystroke = get_keystroke_full(1000);
++-- 
++2.53.0
+diff --git a/payloads/external/SeaBIOS/Makefile b/payloads/external/SeaBIOS/Makefile
+index bd31f52..36db243 100644
+--- a/payloads/external/SeaBIOS/Makefile
++++ b/payloads/external/SeaBIOS/Makefile
+@@ -18,7 +18,11 @@
+ 	echo "    Cloning SeaBIOS from Git"
+ 	git clone $(project_git_repo) $(project_dir)
+ 
+-fetch: seabios
++patch_undo:
++	echo "    PATCH_UNDO SeaBIOS $(TAG-y)"
++	cd seabios; git reset --hard HEAD; rm -f "./.patched"
++
++fetch: seabios patch_undo
+ ifeq ($(TAG-y),)
+ 	echo "Error: The specified tag is invalid"
+ ifeq ($(CONFIG_SEABIOS_REVISION),y)
+@@ -79,7 +83,21 @@
+ #	echo "# CONFIG_SMBIOS is not set" >> seabios/.config
+ 	$(MAKE) -C seabios olddefconfig OUT=out/
+ 
+-build: config
++patch_do:
++	if [ -d "./seabios/" ] ; then \
++		cd "./seabios/" ; \
++		if [ ! -f "./.patched" ] ; then \
++			echo "    PATCH_DO   SeaBIOS $(TAG-y)" ; \
++			for p in ./../*.patch; do \
++				[ -f "$$p" ] || continue; \
++				echo "    Applying $$(basename $$p)"; \
++				patch -p1 < "$$p" || exit 1; \
++			done; \
++			touch "./.patched" ; \
++		fi ; \
++	fi
++
++build: config patch_do
+ 	echo "    MAKE       SeaBIOS $(TAG-y)"
+ 	$(MAKE) -C seabios OUT=out/
+ 
+@@ -92,4 +110,4 @@
+ print-repo-info:
+ 	echo "$(project_git_repo) $(project_dir)"
+ 
+-.PHONY: checkout config build clean distclean clone fetch print-repo-info
++.PHONY: checkout config build clean distclean clone fetch print-repo-info patch_do patch_undo

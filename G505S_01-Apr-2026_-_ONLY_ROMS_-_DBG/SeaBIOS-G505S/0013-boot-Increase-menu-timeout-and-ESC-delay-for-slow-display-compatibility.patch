@@ -1,0 +1,43 @@
+boot: Increase menu timeout and ESC delay for slow-display compatibility
+
+Extend the default boot menu wait time to 9 seconds and the ESC key
+acceptance delay to 3 seconds. These adjustments accommodate systems with
+slow display initialization, ensuring the menu is fully visible before
+timeout or accidental dismissal. The longer delays prevent users from
+missing the prompt on sluggish screens and reduce the risk of unintended
+boots caused by habitual key mashing during the display warm-up period.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ src/boot.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/src/boot.c b/src/boot.c
+index 0a4324cc..1800dc7a 100644
+--- a/src/boot.c
++++ b/src/boot.c
+@@ -744,7 +744,8 @@ get_keystroke(int msec)
+ 
+ int BootSequence VARLOW = -1;
+ 
+-#define DEFAULT_BOOTMENU_WAIT 2500
++#define DEFAULT_BOOTMENU_WAIT 9000
++#define ESC_ACCEPTED_TIME     3000
+ 
+ static const char keyboard_keys[] = {
+     '1','2','3','4','5','6','7','8','9','0',
+@@ -1076,10 +1077,10 @@ interactive_bootmenu(void)
+     print_bootmenu_page(entries, page_start, page_end, paging_enabled, page_num);
+ 
+     // Get key press.  If the menu key is ESC, do not restart boot unless
+-    // 1.5 seconds have passed.  Otherwise users (trained by years of
++    // three seconds have passed.  Otherwise users (trained by years of
+     // repeatedly hitting keys to enter the BIOS) will end up hitting ESC
+     // multiple times and immediately booting the primary boot device.
+-    int esc_accepted_time = irqtimer_calc(menukey == 1 ? 1500 : 0);
++    int esc_accepted_time = irqtimer_calc(menukey == 1 ? ESC_ACCEPTED_TIME : 0);
+     for (;;) {
+         clear_keyboard_buffer();
+         keystroke = get_keystroke_full(1000);
+-- 
+2.53.0

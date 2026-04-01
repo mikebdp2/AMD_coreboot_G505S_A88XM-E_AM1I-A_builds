@@ -1,0 +1,204 @@
+From 039f67d8bb34eb4bdfe904c19a12e7450fdcce0d Mon Sep 17 00:00:00 2001
+From: Mike Banon <mikebdp2@gmail.com>
+Date: Mon, 07 Dec 2020 07:27:40 +0300
+Subject: [PATCH] AMD good IRQs: scripts for applying the unofficial (not-merged-yet) patches
+
+These scripts will help you to securely and conveniently apply
+ten changes for improving the IRQ routing on these AMD boards:
+1) CB:58750, CB:58751, CB:58752, CB:58753 - for AMD Lenovo G505S;
+2) CB:48424, CB:48425, CB:48426 - for ASUS A88XM-E;
+3) CB:58754, CB:58755, CB:58756 - for ASUS AM1I-A.
+Save to ./coreboot/ then run ./get_irq_patches.sh , ./check... and ./apply...
+
+Change-Id: I04869ae24185eef5399c3fd9b8d4965ec4e33a19
+---
+
+diff --git a/apply_irq_patches.sh b/apply_irq_patches.sh
+new file mode 100755
+index 0000000..cf7960e
+--- /dev/null
++++ b/apply_irq_patches.sh
+@@ -0,0 +1,52 @@
++#!/bin/sh
++###
++### https://review.coreboot.org/c/coreboot/+/58750
++### lenovo/g505s: fix the IRQs and create the good MP tables
++###
++patch -p1 < "./8c78f54.diff"
++###
++### https://review.coreboot.org/c/coreboot/+/58751
++### lenovo/g505s: update the ACPI routing to match the new IRQ routing
++###
++patch -p1 < "./f0db861.diff"
++###
++### https://review.coreboot.org/c/coreboot/+/58752
++### lenovo/g505s: add the PIRQ routing table
++###
++patch -p1 < "./8aa0ae3.diff"
++###
++### https://review.coreboot.org/c/coreboot/+/58753
++### lenovo/g505s: enable the webcam [WIP]
++###
++patch -p1 < "./927a79f.diff"
++###
++### https://review.coreboot.org/c/coreboot/+/48424
++### asus/a88xm-e: properly program the IRQ tables
++###
++patch -p1 < "./21d48de.diff"
++###
++### https://review.coreboot.org/c/coreboot/+/48425
++### asus/a88xm-e: update the ACPI routing to match the new IRQ routing
++###
++patch -p1 < "./f001cb1.diff"
++###
++### https://review.coreboot.org/c/coreboot/+/48426
++### asus/a88xm-e: add the PIRQ routing table
++###
++patch -p1 < "./b0beb9b.diff"
++###
++### https://review.coreboot.org/c/coreboot/+/58754
++### asus/am1i-a: fix the IRQs and create the good MP tables
++###
++patch -p1 < "./0a3347f.diff"
++###
++### https://review.coreboot.org/c/coreboot/+/58755
++### asus/am1i-a: update the ACPI routing to match the new IRQ routing
++###
++patch -p1 < "./a223c09.diff"
++###
++### https://review.coreboot.org/c/coreboot/+/58756
++### asus/am1i-a: update the PIRQ routing table
++###
++patch -p1 < "./02cb011.diff"
++###
+diff --git a/check_irq_patches.sh b/check_irq_patches.sh
+new file mode 100755
+index 0000000..0539295
+--- /dev/null
++++ b/check_irq_patches.sh
+@@ -0,0 +1,21 @@
++#!/bin/sh
++rm -f "./sha256sums_irq_my.txt"
++sha256sum "./8c78f54.diff" >  "./sha256sums_irq_my.txt"
++sha256sum "./f0db861.diff" >> "./sha256sums_irq_my.txt"
++sha256sum "./8aa0ae3.diff" >> "./sha256sums_irq_my.txt"
++sha256sum "./927a79f.diff" >> "./sha256sums_irq_my.txt"
++sha256sum "./21d48de.diff" >> "./sha256sums_irq_my.txt"
++sha256sum "./f001cb1.diff" >> "./sha256sums_irq_my.txt"
++sha256sum "./b0beb9b.diff" >> "./sha256sums_irq_my.txt"
++sha256sum "./0a3347f.diff" >> "./sha256sums_irq_my.txt"
++sha256sum "./a223c09.diff" >> "./sha256sums_irq_my.txt"
++sha256sum "./02cb011.diff" >> "./sha256sums_irq_my.txt"
++if cmp -s "./sha256sums_irq_my.txt" "./sha256sums_irq_correct.txt"
++then
++    echo "SHA256 checksums are correct, please run ./apply_irq_patches.sh"
++    exit 0
++else
++    echo "! MISMATCH ! See ./sha256sums_irq_my.txt and ./sha256sums_irq_correct.txt"
++    exit 1
++fi
++#
+diff --git a/get_irq_patches.sh b/get_irq_patches.sh
+new file mode 100755
+index 0000000..c0708fc
+--- /dev/null
++++ b/get_irq_patches.sh
+@@ -0,0 +1,82 @@
++#!/bin/sh
++###
++### https://review.coreboot.org/c/coreboot/+/58750
++### lenovo/g505s: fix the IRQs and create the good MP tables
++###
++rm -f "./8c78f54.diff"
++wget "https://review.coreboot.org/changes/58750/revisions/6/patch?zip"
++unzip "./patch?zip" && rm -f "./patch?zip" # && patch -p1 < "./8c78f54.diff"
++sleep 1
++###
++### https://review.coreboot.org/c/coreboot/+/58751
++### lenovo/g505s: update the ACPI routing to match the new IRQ routing
++###
++rm -f "./f0db861.diff"
++wget "https://review.coreboot.org/changes/58751/revisions/7/patch?zip"
++unzip "./patch?zip" && rm -f "./patch?zip" # && patch -p1 < "./f0db861.diff"
++sleep 1
++###
++### https://review.coreboot.org/c/coreboot/+/58752
++### lenovo/g505s: add the PIRQ routing table
++###
++rm -f "./8aa0ae3.diff"
++wget "https://review.coreboot.org/changes/58752/revisions/3/patch?zip"
++unzip "./patch?zip" && rm -f "./patch?zip" # && patch -p1 < "./8aa0ae3.diff"
++sleep 1
++###
++### https://review.coreboot.org/c/coreboot/+/58753
++### lenovo/g505s: enable the webcam [WIP]
++###
++rm -f "./927a79f.diff"
++wget "https://review.coreboot.org/changes/58753/revisions/3/patch?zip"
++unzip "./patch?zip" && rm -f "./patch?zip" # && patch -p1 < "./927a79f.diff"
++sleep 1
++###
++### https://review.coreboot.org/c/coreboot/+/48424
++### asus/a88xm-e: properly program the IRQ tables
++###
++rm -f "./21d48de.diff"
++wget "https://review.coreboot.org/changes/48424/revisions/7/patch?zip"
++unzip "./patch?zip" && rm -f "./patch?zip" # && patch -p1 < "./21d48de.diff"
++sleep 1
++###
++### https://review.coreboot.org/c/coreboot/+/48425
++### asus/a88xm-e: update the ACPI routing to match the new IRQ routing
++###
++rm -f "./f001cb1.diff"
++wget "https://review.coreboot.org/changes/48425/revisions/6/patch?zip"
++unzip "./patch?zip" && rm -f "./patch?zip" # && patch -p1 < "./f001cb1.diff"
++sleep 1
++###
++### https://review.coreboot.org/c/coreboot/+/48426
++### asus/a88xm-e: add the PIRQ routing table
++###
++rm -f "./b0beb9b.diff"
++wget "https://review.coreboot.org/changes/48426/revisions/7/patch?zip"
++unzip "./patch?zip" && rm -f "./patch?zip" # && patch -p1 < "./b0beb9b.diff"
++sleep 1
++###
++### https://review.coreboot.org/c/coreboot/+/58754
++### asus/am1i-a: fix the IRQs and create the good MP tables
++###
++rm -f "./0a3347f.diff"
++wget "https://review.coreboot.org/changes/58754/revisions/3/patch?zip"
++unzip "./patch?zip" && rm -f "./patch?zip" # && patch -p1 < "./0a3347f.diff"
++sleep 1
++###
++### https://review.coreboot.org/c/coreboot/+/58755
++### asus/am1i-a: update the ACPI routing to match the new IRQ routing
++###
++rm -f "./a223c09.diff"
++wget "https://review.coreboot.org/changes/58755/revisions/2/patch?zip"
++unzip "./patch?zip" && rm -f "./patch?zip" # && patch -p1 < "./a223c09.diff"
++sleep 1
++###
++### https://review.coreboot.org/c/coreboot/+/58756
++### asus/am1i-a: update the PIRQ routing table
++###
++rm -f "./02cb011.diff"
++wget "https://review.coreboot.org/changes/58756/revisions/2/patch?zip"
++unzip "./patch?zip" && rm -f "./patch?zip" # && patch -p1 < "./02cb011.diff"
++sleep 1
++###
+diff --git a/sha256sums_irq_correct.txt b/sha256sums_irq_correct.txt
+new file mode 100755
+index 0000000..f30d378
+--- /dev/null
++++ b/sha256sums_irq_correct.txt
+@@ -0,0 +1,10 @@
++ec468afdd50373f58dfdd20e7711aa049f4f68c708b1233f33720c8b76b7de09  ./8c78f54.diff
++f734e433e9d61e2b80f6df6cf5c19d2d0e92aee00a5485163efd1059a7715877  ./f0db861.diff
++3616024a64e3eca04c00c4da09b8aa0aa333526ed50ea95ac4f040de7aa31f4d  ./8aa0ae3.diff
++d813e7d40f00491da8a9487d451fb80de9dabf58104615817902d93326c3576e  ./927a79f.diff
++9f633ca6cf874075dfaaa8529851a8e36f9ac5bf97421e808a5e9eeb7d4440a6  ./21d48de.diff
++316158e5230665dad460edf5a93626c8e79693781d90f73a64d444d0305dc34b  ./f001cb1.diff
++132866ab2cbc4a128e555d14e2026626e906a2777ec5e21b0fd7c9699c4d3a26  ./b0beb9b.diff
++3fd593d2bf32d2b15ddba6aa0987a0c9bbfab026b9ebd53ffdd36f411dc47db6  ./0a3347f.diff
++4721fd7cd6347329c5b30c86234cd93892a5c10927bfe06db7d1b28989607b9e  ./a223c09.diff
++ecdc8f3435e1b71a531fe8e4878f137f3719eb0ba9fa781fe6f3befe5ea5c5aa  ./02cb011.diff
