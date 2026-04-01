@@ -1,0 +1,318 @@
+From 0a3347f7c9e80874236e6a2091474b12987edb10 Mon Sep 17 00:00:00 2001
+From: Mike Banon <mike.banon@3mdeb.com>
+Date: Fri, 29 Oct 2021 18:56:46 +0300
+Subject: [PATCH] asus/am1i-a: fix the IRQs and create the good MP tables
+
+Although the IRQ programming of this board is much better than
+AMD Lenovo G505S or ASUS A88XM-E (both are AMD fam15h boards),
+still it's far from perfect and needs to be improved - to ensure that
+KolibriOS is working properly. Also, CB:38313 dropped the broken MP
+tables for many boards including am1i-a, so we can make the good ones.
+
+With this change applied:
+* AM1I-A boots fine to Linux - no angry IRQ-related messages at dmesg;
+* KolibriOS sees 15 IRQs in a table and could successfully attach a
+driver to Realtek RTL8168 onboard Ethernet controller with an IRQ 4.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+Change-Id: I23ab33ec6a43ac61fc37109ddeca920afb07498d
+---
+
+diff --git a/src/mainboard/asus/am1i-a/Kconfig b/src/mainboard/asus/am1i-a/Kconfig
+index 9d2cb16..ceb0d8c 100644
+--- a/src/mainboard/asus/am1i-a/Kconfig
++++ b/src/mainboard/asus/am1i-a/Kconfig
+@@ -12,6 +12,7 @@
+ 	select HAVE_OPTION_TABLE
+ 	select HAVE_CMOS_DEFAULT
+ 	select HAVE_PIRQ_TABLE
++	select HAVE_MP_TABLE
+ 	select HAVE_ACPI_RESUME
+ 	select HAVE_ACPI_TABLES
+ 	select NORTHBRIDGE_AMD_AGESA_FAMILY16_KB
+diff --git a/src/mainboard/asus/am1i-a/mainboard.c b/src/mainboard/asus/am1i-a/mainboard.c
+index 0c00e63..64322d6 100644
+--- a/src/mainboard/asus/am1i-a/mainboard.c
++++ b/src/mainboard/asus/am1i-a/mainboard.c
+@@ -6,35 +6,8 @@
+ #include <southbridge/amd/common/amd_pci_util.h>
+ #include <northbridge/amd/agesa/family16kb/pci_devs.h>
+ 
+-static const u8 mainboard_picr_data[FCH_INT_TABLE_SIZE] = {
+-	/* INTA# - INTH# */
+-	[0x00] = 0x03,0x04,0x05,0x07,0x1F,0x1F,0x1F,0x1F,
+-	/* Misc-nil,0,1,2, INT from Serial irq */
+-	[0x08] = 0x5A,0xF1,0x00,0x00,0x1F,0x1F,0x1F,0x1F,
+-	/* SCI, SMBUS0, ASF, HDA, FC, GEC, PerMon, SD */
+-	[0x10] = 0x1F,0x1F,0x1F,0x03,0x1F,0x1F,0x1F,0x1F,
+-	/* IMC INT0 - 5 */
+-	[0x20] = 0x1F,0x1F,0x1F,0x1F,0x1F,0x1F,
+-	/* USB Devs 18/19/22 INTA-B */
+-	[0x30] = 0x05,0x04,0x05,0x04,0x05,0x04,0x1F,0x1F,
+-	/* RSVD, SATA */
+-	[0x40] = 0x1F, 0x07
+-};
+-
+-static const u8 mainboard_intr_data[FCH_INT_TABLE_SIZE] = {
+-	/* INTA# - INTH# */
+-	[0x00] = 0x10,0x11,0x12,0x13,0x1F,0x1F,0x1F,0x1F,
+-	/* Misc-nil,0,1,2, INT from Serial irq */
+-	[0x08] = 0x00,0x00,0x00,0x00,0x1F,0x1F,0x1F,0x1F,
+-	/* SCI, SMBUS0, ASF, HDA, FC, GEC, PerMon, SD */
+-	[0x10] = 0x09,0x1F,0x1F,0x10,0x1F,0x1F,0x1F,0x1F,
+-	/* IMC INT0 - 5 */
+-	[0x20] = 0x1F,0x1F,0x1F,0x1F,0x1F,0x1F,
+-	/* USB Devs 18/19/22 INTA-B */
+-	[0x30] = 0x12,0x11,0x12,0x11,0x12,0x11,0x1F,0x1F,
+-	/* RSVD, SATA */
+-	[0x40] = 0x1F, 0x13
+-};
++extern const u8 mainboard_picr_data[FCH_INT_TABLE_SIZE];
++extern const u8 mainboard_intr_data[FCH_INT_TABLE_SIZE];
+ 
+ /*
+  * This table defines the index into the picr/intr_data
+@@ -44,23 +17,23 @@
+  * PCI_INTR register 0xC00/0xC01.  This index will define
+  * the interrupt that it should use.  Putting PIRQ_A into
+  * the PIN A index for a device will tell that device to
+- * use PIC IRQ 10 if it uses PIN A for its hardware INT.
++ * use PIC IRQ picr_data[PIRQ_A] if it uses PIN A for its hardware INT.
+  */
+ static const struct pirq_struct mainboard_pirq_data[] = {
+-	/* {PCI_devfn,	{PIN A, PIN B, PIN C, PIN D}}, */
+-	{GFX_DEVFN,	{PIRQ_A, PIRQ_NC, PIRQ_NC, PIRQ_NC}},			/* VGA:		01.0 */
+-	{ACTL_DEVFN,{PIRQ_NC, PIRQ_B, PIRQ_NC, PIRQ_NC}},			/* Audio:	01.1 */
+-	{NB_PCIE_PORT1_DEVFN,	{PIRQ_A, PIRQ_B, PIRQ_C, PIRQ_D}},	/* x4 PCIe:	02.1 */
+-	{NB_PCIE_PORT5_DEVFN,	{PIRQ_B, PIRQ_C, PIRQ_D, PIRQ_A}},	/* Edge:	02.5 */
+-	{XHCI_DEVFN,	{PIRQ_C, PIRQ_NC, PIRQ_NC, PIRQ_NC}},		/* XHCI:	10.0 */
+-	{SATA_DEVFN,	{PIRQ_SATA, PIRQ_NC, PIRQ_NC, PIRQ_NC}},	/* SATA:	11.0 */
+-	{OHCI1_DEVFN,	{PIRQ_OHCI1, PIRQ_NC, PIRQ_NC, PIRQ_NC}},	/* OHCI1:	12.0 */
+-	{EHCI1_DEVFN,	{PIRQ_NC, PIRQ_EHCI1, PIRQ_NC, PIRQ_NC}},	/* EHCI1:	12.2 */
+-	{OHCI2_DEVFN,	{PIRQ_OHCI2, PIRQ_NC, PIRQ_NC, PIRQ_NC}},	/* OHCI2:	13.0 */
+-	{EHCI2_DEVFN,	{PIRQ_NC, PIRQ_EHCI2, PIRQ_NC, PIRQ_NC}},	/* EHCI2:	13.2 */
+-	{OHCI3_DEVFN,	{PIRQ_OHCI3, PIRQ_NC, PIRQ_NC, PIRQ_NC}},	/* OHCI3:	16.0 */
+-	{EHCI3_DEVFN,	{PIRQ_NC, PIRQ_EHCI3, PIRQ_NC, PIRQ_NC}},	/* EHCI3:	16.2 */
+-	{HDA_DEVFN,		{PIRQ_HDA, PIRQ_NC, PIRQ_NC, PIRQ_NC}},		/* HDA:		14.2 */
++	/* {PCI_devfn,	{PIN A, PIN B, PIN C, PIN D} }, */
++	{GFX_DEVFN,	{PIRQ_A, PIRQ_NC, PIRQ_NC, PIRQ_NC} },		/* APU Integrated Graphics:	0:01.00 - IRQ 3 */
++	{ACTL_DEVFN,	{PIRQ_NC, PIRQ_B, PIRQ_NC, PIRQ_NC} },		/* APU HDMI Audio Controller:	0:01.01 - IRQ 4 */
++	{NB_PCIE_PORT1_DEVFN,	{PIRQ_A, PIRQ_B, PIRQ_C, PIRQ_D} },	/* PCIe GPP to dGPU 1:00.00:	0:02.01 - IRQ 3 */
++	{NB_PCIE_PORT5_DEVFN,	{PIRQ_B, PIRQ_C, PIRQ_D, PIRQ_A} },	/* PCIe GPP to Eth 2:00.00:	0:02.05 - IRQ 4 */
++	{XHCI_DEVFN,	{PIRQ_C, PIRQ_NC, PIRQ_NC, PIRQ_NC} },		/* USB XHCI:			0:10.00 - IRQ 5 */
++	{SATA_DEVFN,	{PIRQ_SATA, PIRQ_NC, PIRQ_NC, PIRQ_NC} },	/* SATA:			0:11.00 - IRQ 7 */
++	{OHCI1_DEVFN,	{PIRQ_OHCI1, PIRQ_NC, PIRQ_NC, PIRQ_NC} },	/* USB OHCI1:			0:12.00 - IRQ 5 */
++	{EHCI1_DEVFN,	{PIRQ_NC, PIRQ_EHCI1, PIRQ_NC, PIRQ_NC} },	/* USB EHCI1:			0:12.02 - IRQ 4 */
++	{OHCI2_DEVFN,	{PIRQ_OHCI2, PIRQ_NC, PIRQ_NC, PIRQ_NC} },	/* USB OHCI2:			0:13.00 - IRQ 5 */
++	{EHCI2_DEVFN,	{PIRQ_NC, PIRQ_EHCI2, PIRQ_NC, PIRQ_NC} },	/* USB EHCI2:			0:13.02 - IRQ 4 */
++	{OHCI3_DEVFN,	{PIRQ_OHCI3, PIRQ_NC, PIRQ_NC, PIRQ_NC} },	/* USB OHCI3:			0:16.00 - IRQ 5 */
++	{EHCI3_DEVFN,	{PIRQ_NC, PIRQ_EHCI3, PIRQ_NC, PIRQ_NC} },	/* USB EHCI3:			0:16.02 - IRQ 4 */
++	{HDA_DEVFN,	{PIRQ_HDA, PIRQ_NC, PIRQ_NC, PIRQ_NC} }		/* Southbridge HD Audio:	0:14.02 - IRQ 3 */
+ };
+ 
+ /* PIRQ Setup */
+@@ -72,9 +45,7 @@
+ 	picr_data_ptr = mainboard_picr_data;
+ }
+ 
+-/**********************************************
+- * enable the dedicated function in mainboard.
+- **********************************************/
++/* dedicated "enable" function */
+ static void mainboard_enable(struct device *dev)
+ {
+ 	/* Initialize the PIRQ data structures for consumption */
+diff --git a/src/mainboard/asus/am1i-a/mptable.c b/src/mainboard/asus/am1i-a/mptable.c
+new file mode 100644
+index 0000000..58dc839
+--- /dev/null
++++ b/src/mainboard/asus/am1i-a/mptable.c
+@@ -0,0 +1,188 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#include <arch/smp/mpspec.h>
++#include <arch/ioapic.h>
++#include <stdint.h>
++#include <string.h>
++#include <southbridge/amd/common/amd_pci_util.h>
++#include <drivers/generic/ioapic/chip.h>
++
++/*
++ * Based on 48751_16h_bkdg.pdf. Acronyms:
++ *
++ * SCI - System Controller Interrupt,
++ * SMBUS - System Management Bus,
++ * ASF - Advanced Synchronization Facility,
++ * HDA - HD Audio,
++ * FC - Flash Controller,
++ * GEC - Gigabit Ethernet Controller,
++ * PerMon - Performance Monitor,
++ * SD - SD Flash Controller,
++ * IMC - Integrated Memory Controller,
++ * RSVD - Reserved.
++ */
++
++const u8 mainboard_picr_data[FCH_INT_TABLE_SIZE] = {
++	/* INTA# - INTH# */
++	[0x00] = 0x03, 0x04, 0x05, 0x07, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* Misc-nil,0,1,2, INTA-INTD from Serial irq */
++	[0x08] = 0xAA, 0xF1, 0x00, 0x00, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* SCI, SMBUS0, ASF, HDA, FC, GEC, PerMon, SD */
++	[0x10] = 0x09, 0x1F, 0x1F, 0x03, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* IMC INT0-INT5 */
++	[0x20] = 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* USB Devs: 18 INTA#,B#; 19 INTA#,B#; 22 INTA#,B# */
++	[0x30] = 0x05, 0x04, 0x05, 0x04, 0x05, 0x04,
++	/* RSVD, SATA */
++	[0x40] = 0x1F, 0x07
++};
++
++const u8 mainboard_intr_data[FCH_INT_TABLE_SIZE] = {
++	/* INTA# - INTH# */
++	[0x00] = 0x10, 0x11, 0x12, 0x13, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* Misc-nil,0,1,2, INTA-INTD from Serial irq */
++	[0x08] = 0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* SCI, SMBUS0, ASF, HDA, FC, GEC, PerMon, SD */
++	[0x10] = 0x09, 0x1F, 0x1F, 0x10, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* IMC INT0-INT5 */
++	[0x20] = 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F,
++	/* USB Devs: 18 INTA#,B#; 19 INTA#,B#; 22 INTA#,B# */
++	[0x30] = 0x12, 0x11, 0x12, 0x11, 0x12, 0x11,
++	/* RSVD, SATA */
++	[0x40] = 0x1F, 0x13
++};
++
++static void smp_add_mpc_entry(struct mp_config_table *mc, unsigned int length)
++{
++	mc->mpc_length += length;
++	mc->mpc_entry_count++;
++}
++
++static void my_smp_write_bus(struct mp_config_table *mc,
++			     unsigned char id, const char *bustype)
++{
++	struct mpc_config_bus *mpc;
++	mpc = smp_next_mpc_entry(mc);
++	memset(mpc, '\0', sizeof(*mpc));
++	mpc->mpc_type = MP_BUS;
++	mpc->mpc_busid = id;
++	memcpy(mpc->mpc_bustype, bustype, sizeof(mpc->mpc_bustype));
++	smp_add_mpc_entry(mc, sizeof(*mpc));
++}
++
++static void *smp_write_config_table(void *v)
++{
++	struct mp_config_table *mc;
++	int bus_isa;
++
++	/*
++	 * By the time this function gets called, the IOAPIC registers
++	 * have been written so they can be read to get the correct
++	 * APIC ID and Version
++	 */
++	u8 ioapic_id = (io_apic_read(VIO_APIC_VADDR, 0x00) >> 24);
++	u8 ioapic_ver = (io_apic_read(VIO_APIC_VADDR, 0x01) & 0xFF);
++
++	/* Initialize the MP_Table */
++	mc = (void *)(((char *)v) + SMP_FLOATING_TABLE_LEN);
++
++	mptable_init(mc);
++	memcpy(mc->mpc_oem, "AMD     ", 8);
++
++	/*
++	 * Type 0: Processor Entries:
++	 * LAPIC ID, LAPIC Version, CPU Flags:EN/BP,
++	 * CPU Signature (Stepping, Model, Family),
++	 * Feature Flags
++	 */
++	smp_write_processors(mc);
++
++	/*
++	 * Type 1: Bus Entries:
++	 * Bus ID, Bus Type
++	 */
++	// mptable_write_buses(mc, NULL, &bus_isa);
++	my_smp_write_bus(mc, 0, "PCI   ");
++	my_smp_write_bus(mc, 1, "PCI   ");
++	bus_isa = 0x02;
++	my_smp_write_bus(mc, bus_isa, "ISA   ");
++
++	/*
++	 * Type 2: I/O APICs:
++	 * APIC ID, Version, APIC Flags:EN, Address
++	 */
++	smp_write_ioapic(mc, ioapic_id, ioapic_ver, VIO_APIC_VADDR);
++
++	/*
++	 * Type 3: I/O Interrupt Table Entries:
++	 * Int Type, Int Polarity, Int Level, Source Bus ID,
++	 * Source Bus IRQ, Dest APIC ID, Dest PIN#
++	 */
++	mptable_add_isa_interrupts(mc, bus_isa, ioapic_id, 0);
++
++	/* PCI interrupts are level triggered, and are
++	 * associated with a specific bus/device/function tuple.
++	 */
++#define PCI_INT(bus, dev, fn, pin) \
++		smp_write_pci_intsrc(mc, mp_INT, bus, dev, fn, ioapic_id, pin)
++
++	/* APU Integrated Graphics:	0:01.00 - IRQ 3 */
++	PCI_INT(0x0, 0x01, 0x0, intr_data_ptr[PIRQ_A]);
++	/* APU HDMI Audio Controller:	0:01.01 - IRQ 4 */
++	PCI_INT(0x0, 0x01, 0x1, intr_data_ptr[PIRQ_B]);
++
++	/* PCIe GPP Ports */
++	/* PCIe GPP to dGPU 1:00.00:	0:02.01 - IRQ 3 */
++	PCI_INT(0x0, 0x02, 0x1, intr_data_ptr[PIRQ_A]);
++	/* PCIe GPP to Eth 2:00.00:	0:02.05 - IRQ 4 */
++	PCI_INT(0x0, 0x02, 0x5, intr_data_ptr[PIRQ_B]);
++
++	/* USB XHCI:			0:10.00 - IRQ 5 */
++	PCI_INT(0x0, 0x10, 0x0, intr_data_ptr[PIRQ_C]);
++	/* SATA:			0:11.00 - IRQ 7 */
++	PCI_INT(0x0, 0x11, 0x0, intr_data_ptr[PIRQ_SATA]);
++	/* USB OHCI1:			0:12.00 - IRQ 5 */
++	PCI_INT(0x0, 0x12, 0x0, intr_data_ptr[PIRQ_OHCI1]);
++	/* USB EHCI1:			0:12.02 - IRQ 4 */
++	PCI_INT(0x0, 0x12, 0x2, intr_data_ptr[PIRQ_EHCI1]);
++	/* USB OHCI2:			0:13.00 - IRQ 5 */
++	PCI_INT(0x0, 0x13, 0x0, intr_data_ptr[PIRQ_OHCI2]);
++	/* USB EHCI2:			0:13.02 - IRQ 4 */
++	PCI_INT(0x0, 0x13, 0x2, intr_data_ptr[PIRQ_EHCI2]);
++	/* USB OHCI3:			0:16.00 - IRQ 5 */
++	PCI_INT(0x0, 0x16, 0x0, intr_data_ptr[PIRQ_OHCI3]);
++	/* USB EHCI3:			0:16.02 - IRQ 4 */
++	PCI_INT(0x0, 0x16, 0x2, intr_data_ptr[PIRQ_EHCI3]);
++	/* Southbridge HD Audio:	0:14.02 - IRQ 3 */
++	PCI_INT(0x0, 0x14, 0x2, intr_data_ptr[PIRQ_HDA]);
++
++	/* Discrete Graphics (dGPU) 1:00.00 behind a 0:02.01 PCIe GPP - IRQ 3 */
++	PCI_INT(0x1, 0x0, 0x0, intr_data_ptr[PIRQ_A]);
++	PCI_INT(0x1, 0x0, 0x1, intr_data_ptr[PIRQ_B]);
++	PCI_INT(0x1, 0x0, 0x2, intr_data_ptr[PIRQ_C]);
++	PCI_INT(0x1, 0x0, 0x3, intr_data_ptr[PIRQ_D]);
++
++	/* Onboard Ethernet (Eth) 2:00.00 behind a 0:02.05 PCIe GPP - IRQ 4 */
++	PCI_INT(0x2, 0x0, 0x0, intr_data_ptr[PIRQ_B]);
++	PCI_INT(0x2, 0x0, 0x1, intr_data_ptr[PIRQ_C]);
++	PCI_INT(0x2, 0x0, 0x2, intr_data_ptr[PIRQ_D]);
++	PCI_INT(0x2, 0x0, 0x3, intr_data_ptr[PIRQ_A]);
++
++	/*Local Ints:	 Type	Polarity	Trigger	 Bus ID	 IRQ	APIC ID PIN# */
++#define IO_LOCAL_INT(type, intr, apicid, pin) \
++		smp_write_lintsrc(mc, (type), MP_IRQ_TRIGGER_EDGE | MP_IRQ_POLARITY_HIGH, bus_isa, (intr), (apicid), (pin))
++
++	IO_LOCAL_INT(mp_ExtINT, 0x0, MP_APIC_ALL, 0x0);
++	IO_LOCAL_INT(mp_NMI, 0x0, MP_APIC_ALL, 0x1);
++	/* There is no extension information... */
++
++	/* Compute the checksums */
++	return mptable_finalize(mc);
++}
++
++unsigned long write_smp_table(unsigned long addr)
++{
++	void *v;
++	v = smp_write_floating_table(addr, 0);
++	return (unsigned long)smp_write_config_table(v);
++}

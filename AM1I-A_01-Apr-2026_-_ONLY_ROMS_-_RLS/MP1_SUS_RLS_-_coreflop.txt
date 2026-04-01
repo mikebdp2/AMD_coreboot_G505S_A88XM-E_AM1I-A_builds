@@ -1,0 +1,29 @@
+FMAP REGION: COREBOOT
+Name                           Offset     Type           Size   Comp
+cbfs_master_header             0x0        cbfs header        32 none
+fallback/romstage              0x80       stage          404056 none
+fallback/ramstage              0x62b80    stage          188017 LZMA (449360 decompressed)
+config                         0x90ac0    raw              2956 LZMA (9033 decompressed)
+revision                       0x91700    raw               782 none
+build_info                     0x91a80    raw               102 none
+fallback/dsdt.aml              0x91b80    raw              6599 none
+cmos.default                   0x935c0    cmos_default      256 none
+cmos_layout.bin                0x93740    cmos_layout       928 none
+pci1002,9830.rom               0x93b80    optionrom       59904 none
+fallback/postcar               0xa2600    stage           39212 none
+img/coreinfo                   0xabfc0    simple elf      43942 none
+fallback/payload               0xb6c00    simple elf      81826 none
+payload_config                 0xcac40    raw              1623 none
+payload_revision               0xcb340    raw               268 none
+img/tint                       0xcb500    simple elf      37835 none
+floppyimg/flopbird.lzma        0xd4940    raw              2150 LZMA (1474560 decompressed)
+floppyimg/tatos.lzma           0xd5240    raw             61281 LZMA (1474560 decompressed)
+floppyimg/memtst64.lzma        0xe4240    raw             68210 LZMA (1474560 decompressed)
+floppyimg/fiwix.lzma           0xf4d40    raw            438606 LZMA (1474560 decompressed)
+floppyimg/snowdrop.lzma        0x15ff40   raw            185685 LZMA (1474560 decompressed)
+floppyimg/visopsys.lzma        0x18d540   raw            451284 LZMA (1474560 decompressed)
+floppyimg/michalos.lzma        0x1fb8c0   raw            626672 LZMA (1474560 decompressed)
+floppyimg/kolcrpt.lzma         0x294940   raw           1347366 LZMA (1474560 decompressed)
+floppyimg/flpnxrtl.lzma        0x3dd900   raw           2885146 LZMA (2949120 decompressed)
+(empty)                        0x69dfc0   null          9732068 none
+bootblock                      0xfe5fc0   bootblock       36864 none

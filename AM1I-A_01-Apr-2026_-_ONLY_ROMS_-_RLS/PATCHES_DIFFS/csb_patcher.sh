@@ -1,0 +1,1143 @@
+#!/usr/bin/env sh
+#
+#    csb_patcher.sh: coreboot and SeaBIOS patcher script, 30 Mar 2026.
+#
+#  Conveniently and securely gets, checks SHA256 and installs some of my
+# patches from this page - https://review.coreboot.org/q/status:open+banon
+#   and also gets a collection of useful floppy-based operating systems.
+#  Use restore_agesa.sh script to restore AMD AGESA boards before running.
+#   More info at http://dangerousprototypes.com/docs/Lenovo_G505S_hacking
+#
+#      Please send your feedback to Mike Banon <mikebdp2@gmail.com>.
+#   Released under the terms of GNU GPL v3 by Free Software Foundation.
+#
+
+# Keys
+  enter=$( printf '\015' )
+ ctrl_c=$( printf '\003' )
+ ctrl_x=$( printf '\030' )
+ ctrl_z=$( printf '\032' )
+# Formatting
+   bold="\033[1m"
+   bred="\033[1;31m"
+ bgreen="\033[1;32m"
+byellow="\033[1;33m"
+   bend="\033[0m"
+
+# Asks a question '$1' and waits for Y/N user input, printing a decision - with '$2' message if Y.
+yesno () {
+    printf "$1 [Y/N] "
+    yesno_old_stty_cfg=$( stty -g )
+    stty raw -echo
+    while true ; do
+        yesno_answer=$( head -c 1 )
+        case "$yesno_answer" in
+            *"$ctrl_c"*|"$ctrl_x"*|"$ctrl_z"*)
+                stty "$yesno_old_stty_cfg"
+                printf "${bred}TERMINATED${bend}\n"
+                exit 1
+                ;;
+            *"y"*|"Y"*)
+                stty "$yesno_old_stty_cfg"
+                printf "${bgreen}YES${bend}$2\n"
+                return 0
+                ;;
+            *"n"*|"N"*)
+                stty "$yesno_old_stty_cfg"
+                printf "${byellow}NO${bend}\n"
+                return 1
+                ;;
+        esac
+    done
+}
+
+# Waits until a user presses Enter.
+encontinue () {
+    printf "\npress [ENTER] to continue... "
+    encontinue_old_stty_cfg=$( stty -g )
+    stty raw -echo
+    while true ; do
+        encontinue_answer=$( head -c 1 )
+        case "$encontinue_answer" in
+            *"$ctrl_c"*|"$ctrl_x"*|"$ctrl_z"*)
+                stty "$encontinue_old_stty_cfg"
+                printf "${bred}TERMINATED${bend}\n"
+                exit 1
+                ;;
+            *"$enter"*)
+                stty "$encontinue_old_stty_cfg"
+                printf "\n"
+                return 0
+                ;;
+        esac
+    done
+}
+
+# Checks if a command '$1' exists.
+command_exists() {
+    if [ ! -x "$( command -v $1 )" ] ; then
+        printf "\n${bred}ERROR${bend}: command ${bold}$1${bend} is not found !\n"
+        encontinue
+        return 1
+    else
+        return 0
+    fi
+}
+
+# Checks if a file '$1' exists.
+file_exists () {
+    if [ ! -f "$1" ] ; then
+        printf "\n${byellow}WARNING${bend}: file ${bold}$1${bend} is not found !\n"
+        encontinue
+        return 1
+    else
+        return 0
+    fi
+}
+
+# Force removes a file '$2' and then copies a file '$1' to '$2'.
+copier () {
+    if file_exists "$1" ; then
+        rm -f "$2"
+        cp "$1" "$2"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Force removes a file '$2' and then moves a file '$1' to '$2'.
+mover () {
+    if file_exists "$1" ; then
+        rm -f "$2"
+        mv "$1" "$2"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Checks if a line '$1' contains the text '$2'.
+checker () {
+    case "$1" in
+        *"$2"*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Prints the lines of a file '$2' that contain the text '$1'.
+grepper () {
+    if file_exists "$2" ; then
+        while IFS= read -r grepper_line
+        do
+            case "$grepper_line" in
+                *"$1"*)
+                    printf '%s\n' "$grepper_line"
+                    ;;
+                *)
+                    ;;
+            esac
+        done < "$2"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Checks if a file '$2' contains the text '$1'.
+grepcheck () {
+    if file_exists "$2" ; then
+        while IFS= read -r grepcheck_line
+        do
+            case "$grepcheck_line" in
+                *"$1"*)
+                    return 0
+                    ;;
+                *)
+                    ;;
+            esac
+        done < "$2"
+        return 1
+    else
+        return 1
+    fi
+}
+
+# Prints the lines of a command '$2' output which contain the text '$1'.
+grepcmd () {
+    grepcmd_output=$( eval "$2" )
+    printf "$grepcmd_output\n" | while IFS= read -r grepcmd_line
+    do
+        case "$grepcmd_line" in
+            *"$1"*)
+                printf '%s\n' "$grepcmd_line"
+                ;;
+            *)
+                ;;
+        esac
+    done
+    return 0
+}
+
+# Trims the leading and trailing whitespace characters of a line '$1'.
+trimmer () {
+    trimmer_line="$1"
+    trimmer_line="${trimmer_line#"${trimmer_line%%[![:space:]]*}"}"
+    trimmer_line="${trimmer_line%"${trimmer_line##*[![:space:]]}"}"
+    printf "$trimmer_line\n"
+    return 0
+}
+
+# Replaces the lines containing the text '$2' of a file '$1' with a line '$3'.
+sedder () {
+    if file_exists "$1" ; then
+        csb_sedder_tmp="./.csb_sedder"
+        rm -f "$csb_sedder_tmp"
+        while IFS= read -r sedder_line
+        do
+            case "$sedder_line" in
+                *"$2"*)
+                    if [ ! -z "$3" ] ; then
+                        printf '%s\n' "$3" >> "$csb_sedder_tmp"
+                    fi
+                    ;;
+                *)
+                    printf '%s\n' "$sedder_line" >> "$csb_sedder_tmp"
+                    ;;
+            esac
+        done < "$1"
+        mover "$csb_sedder_tmp" "$1"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Downloads a file '$1' from a link '$2' using the options '$3' and checks if this was successful.
+wgetter () {
+    rm -f "$1"
+    if [ -z "${3:-}" ] ; then
+        wget "$2"
+    else
+        wget "$3" "$2"
+    fi
+    if [ -f "$1" ] ; then
+        wgetter_file_size=$(($( wc -c < "$1" )))
+        if [ "$wgetter_file_size" -eq "0" ] ; then
+            rm -f "$1"
+        fi
+    fi
+    if [ ! -f "$1" ] ; then
+        printf "\n${byellow}WARNING${bend}: cannot download a ${bold}$1${bend} file !"
+        printf "\n         Please check your Internet connection and try again.\n"
+        encontinue
+        return 1
+    else
+        sleep 1
+        return 0
+    fi
+}
+
+# Unzips the archive '$1', optional '$2' for -j path inside the archive, and then force removes it.
+unzipper () {
+    if file_exists "$1" ; then
+        if [ -z "$2" ] ; then
+            unzip "$1"
+        else
+            unzip -j "$1" "$2"
+        fi
+        rm -f "$1"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Expands a file '$1' with zeroes using a dd to '$2' size - e.g. to a standard floppy size 1474560.
+expander () {
+    if file_exists "$1" && [ ! -z "$2" ] ; then
+        expander_file_size=$(($( wc -c < "$1" )))
+        if [ "$expander_file_size" -lt "$2" ] ; then
+            dd if=/dev/zero of=$1 bs=1 count=1 seek=$(( $2 - 1 )) conv=notrunc iflag=nocache
+        fi
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Compares a file '$1' with a sha256sum '$2'.
+verifier () {
+    if file_exists "$1" && [ ! -z "$2" ] ; then
+        verifier_sha256sum_correct="$2  $1"
+        verifier_sha256sum_my=$( sha256sum "$1" )
+        printf "\n=== sha256sum should be:\n${bold}$verifier_sha256sum_correct${bend}\n"
+        if [ "$verifier_sha256sum_my" = "$verifier_sha256sum_correct" ] ; then
+            printf "^^^ this is correct, "
+            return 0
+        else
+            printf "${bold}^^^ ! MISMATCH for $1 ! Check sha256sum manually: sha256sum $1${bend}\n"
+            encontinue
+            return 1
+        fi
+    else
+        return 1
+    fi
+}
+
+# Compares a floppy image '$1.img' with a sha256sum '$2' and creates a hidden file '.$1' if matches.
+floppy_verifier () {
+    rm -f "./.$1"
+    cd "./../"
+    if [ ! -z "$2" ] ; then
+        if file_exists "./floppies/$1.img" ; then
+            if verifier "./floppies/$1.img" "$2" ; then
+                printf "./floppies/${bold}$1.img${bend} is verified and could be added.\n\n"
+                cd "./floppies/"
+                touch "./.$1"
+                return 0
+            else
+                cd "./floppies/"
+                return 1
+            fi
+        else
+            printf "\n${byellow}WARNING${bend}: cannot find ./floppies/${bold}$1.img${bend} !\n"
+            printf "\n         Please re-download a set of floppies.\n"
+            encontinue
+            return 1
+        fi
+    else
+        printf "\n${byellow}WARNING${bend}: ./floppies/${bold}$1.img${bend} - is a rolling release, its' SHA256 checksum"
+        printf "\n         is changing constantly and not provided by $1 project, so not checked.\n"
+        encontinue
+        cd "./floppies/"
+        touch "./.$1"
+        return 0
+    fi
+}
+
+# Download a floppy called "$1", for the purpose of adding it later to a coreboot ROM image.
+floppy_downloader() {
+    if [ ! -z "$1" ] ; then
+        case "$1" in
+            *"flpnxrtl"*)
+                if wgetter "./flpnxrtl.img" "https://github.com/mikebdp2/floppinux-amd64net/raw/refs/heads/main/floppies/flpnxrtl.img" "--output-document=flpnxrtl.img" ; then
+                        floppy_verifier "flpnxrtl" "dd632db3365ebe2c31f4cf9c51c1e91754a2e48994e3b918524b44b83932e4c1"
+                fi
+                ;;
+            *"flpnxath"*)
+                if wgetter "./flpnxath.img" "https://github.com/mikebdp2/floppinux-amd64net/raw/refs/heads/main/floppies/flpnxath.img" "--output-document=flpnxath.img" ; then
+                        floppy_verifier "flpnxath" "58a06918e343039142abecaff8a6f374f8213cb2752918cad9949ee684269a8e"
+                fi
+                ;;
+            *"kolcrpt"*)
+                if wgetter       "./kolibri_v8930_vigenere.zip" "https://git.kolibrios.org/floppy121/IRCC_Vigenere/raw/branch/main/kolibri_v8930_vigenere.zip" "--output-document=kolibri_v8930_vigenere.zip" ; then
+                    if verifier  "./kolibri_v8930_vigenere.zip" "798c46d43345f2fd047a885489c76611c4c9d7e959fd6f3ab80d7840e74adc22" ; then
+                        unzipper "./kolibri_v8930_vigenere.zip" "kolibri_v8930_vigenere/kolibri_v8930_vigenere.img"
+                        mover    "./kolibri_v8930_vigenere.img" "./kolcrpt.img"
+                        floppy_verifier  "kolcrpt" "9c95470e16480d527c54deb005bf2a0dc66c50ca20612583a9355d9be1d3f548"
+                    fi
+                fi
+                ;;
+            *"kolibri"*)
+                if command_exists "7za" ; then
+                    if wgetter "./latest-img.7z" "https://builds.kolibrios.org/en_US/latest-img.7z" ; then
+                        rm -f "./kolibri.img"
+                        7za x "./latest-img.7z"
+                        rm -f "./Install.txt"
+                        rm -f "./latest-img.7z"
+                        floppy_verifier  "kolibri" "" # IS A ROLLING RELEASE, NO SHA256 VERIFICATION
+                    fi
+                else
+                    printf "\n${byellow}WARNING${bend}: cannot get ./floppies/${bold}kolibri.img${bend} without ${bold}7za${bend} !\n"
+                    encontinue
+                    return 1
+                fi
+                ;;
+            *"freedos"*)
+                printf "\n${byellow}WARNING${bend}: getting ./floppies/${bold}freedos.img${bend} could take a couple of minutes...\n\n"
+                if wgetter       "./FD14-FloppyEdition.zip" "https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.4/FD14-FloppyEdition.zip" ; then
+                    if verifier  "./FD14-FloppyEdition.zip" "45b1fa7c52dd996c3bfa5e352ffcd410781b952a6ad629f15a4c9ec4bbaefc5a" ; then
+                        unzipper "./FD14-FloppyEdition.zip" "144m/x86BOOT.img"
+                        mover    "./x86BOOT.img" "./freedos.img"
+                        floppy_verifier  "freedos" "552f7cbb0625960c050a3e682a4d2121cc2ffdfa9dc9d592ccd49edf179333dc"
+                    fi
+                fi
+                ;;
+            *"michalos"*)
+                if wgetter "./michalos.img" "https://github.com/mikebdp2/MichalOS/raw/master/build/images/michalos.flp" "--output-document=michalos.img" ; then
+                        floppy_verifier "michalos" "c784ccfebfa6b191873284a79e8fda5b44e06f2626629b0b96f4841b30c03492"
+                fi
+                ;;
+            *"visopsys"*)
+                if wgetter "./visopsys.img" "https://github.com/mikebdp2/visopsys/raw/main/utils/visopsys-2024-01-02-x86-floppy.img" "--output-document=visopsys.img" ; then
+                        floppy_verifier "visopsys" "8040da380a96feee644191db880fcab44473e1ff42dc18cb4f80029de457a569"
+                fi
+                ;;
+            *"snowdrop"*)
+                if wgetter "./snowdrop.img" "http://sebastianmihai.com/downloads/snowdrop/snowdrop.img" ; then
+                        floppy_verifier "snowdrop" "" # IS A ROLLING RELEASE, NO SHA256 VERIFICATION
+                fi
+                ;;
+            *"fiwix"*)
+                if wgetter "./fiwix.img" "https://www.fiwix.org/FiwixOS-3.5-initrd-i386.img" "--output-document=fiwix.img" ; then
+                        floppy_verifier    "fiwix" "733c654f7f7983e5ab049956cfe28655cf8fcec65b161d9366f71e2871ead288"
+                fi
+                ;;
+            *"memtst64"*)
+                if wgetter "./memtst64.img" "https://github.com/mikebdp2/memtest86plus/raw/refs/heads/main/build/x86_64/floppy.img" "--output-document=memtst64.img" ; then
+                        floppy_verifier "memtst64" "54cd97b335ccd28f003b767881ff7f9f9505fbf0a38d9fa7acf878cb3213d137"
+                fi
+                ;;
+            *"memtst32"*)
+                if wgetter "./memtst32.img" "https://github.com/mikebdp2/memtest86plus/raw/refs/heads/main/build/i586/floppy.img" "--output-document=memtst32.img" ; then
+                        floppy_verifier "memtst32" "aff8696278a3298dfd83f88e4e1c77b3c2723bd2ecb8310d82f0fbfd2cf00865"
+                fi
+                ;;
+            *"tatos"*)
+                if wgetter "./tatos.img" "https://github.com/tatimmer/tatOS/raw/master/tatOS.img" "--output-document=tatos.img" ; then
+                    expander "./tatos.img" "1474560"
+                        floppy_verifier    "tatos" "2c66f884498a4fe7b469bc213aebfccd84a09fd7ace1b3b4b3e747e2392c35d1"
+                fi
+                ;;
+            *"plop"*)
+                if wgetter       "./plpbt-5.0.15.zip" "https://download.plop.at/files/bootmngr/plpbt-5.0.15.zip" ; then
+                    if verifier  "./plpbt-5.0.15.zip" "641a8ccf13b1efb5e9021bd5b801938e6f071ed3f59c41e238e96630803fbb08" ; then
+                        unzipper "./plpbt-5.0.15.zip" "plpbt-5.0.15/plpbt.img"
+                        mover    "./plpbt.img" "./plop.img"
+                        floppy_verifier     "plop" "f170759966ec4efe60c8531158344a234d7543c8de81e54c8c1bb9d2d69eaf27"
+                    fi
+                fi
+                ;;
+            *"flopbird"*)
+                if wgetter "./flopbird.img" "https://github.com/mikebdp2/floppybird/raw/master/build/img/floppybird.img" "--output-document=flopbird.img" ; then
+                        floppy_verifier "flopbird" "249f77da69ba5d3295ed0c9180e4ffc646fb24f545630448fd55d5de2aec1455"
+                fi
+                ;;
+            *)
+                ;;
+        esac
+        if [ -f "./$1.img" ] ; then
+            chmod 755 "./$1.img"
+            return 0
+        else
+            printf "\n${byellow}WARNING${bend}: cannot get ./floppies/${bold}$1.img${bend} !\n"
+            encontinue
+            return 1
+        fi
+    else
+        return 1
+    fi
+}
+
+# Downloads a collection of floppies, for the purpose of adding them later to a coreboot ROM image.
+floppy_mass_downloader () {
+    printf "\n"
+    if [ ! -d "./floppies/" ] ; then
+        mkdir "./floppies/"
+    fi
+    cd "./floppies/"
+    floppy_downloader "flpnxrtl"
+    floppy_downloader "flpnxath"
+    floppy_downloader "kolcrpt"
+    floppy_downloader "kolibri"
+    floppy_downloader "freedos"
+    floppy_downloader "michalos"
+    floppy_downloader "visopsys"
+    floppy_downloader "snowdrop"
+    floppy_downloader "fiwix"
+    floppy_downloader "memtst64"
+    floppy_downloader "memtst32"
+    floppy_downloader "tatos"
+    floppy_downloader "plop"
+    floppy_downloader "flopbird"
+    cd "./../"
+    return 0
+}
+
+# Prints the remaining (empty) CBFS space at coreboot '$3' ROM using '$2' cbfstool.
+cbfs_emptyspacer () {
+    cbfs_emptyspacer_line=$( grepcmd "(empty)" "$2 $3 print" )
+    case "$cbfs_emptyspacer_line" in
+        *"(empty)"*)
+            cbfs_emptyspacer_line=${cbfs_emptyspacer_line#??????????????????????????????????????????????}
+            cbfs_emptyspacer_line=${cbfs_emptyspacer_line%????}
+            cbfs_emptyspacer_line=$( trimmer "$cbfs_emptyspacer_line" )
+            cbfs_emptyspacer_line=$(( $cbfs_emptyspacer_line / 1024 ))
+            printf "\n\n${bgreen}NOTE${bend}: your $3 has some (empty) space left: ${byellow}~$cbfs_emptyspacer_line K${bend}\n"
+            return 0
+            ;;
+        *)
+            printf "\n\n${byellow}WARNING${bend}: sorry, I cannot find out the remaining (empty) space at ${bold}$3${bend}\n"
+            return 1
+            ;;
+   esac
+}
+
+# Adds a './pci1002,$1.rom' to coreboot '$3' ROM using '$2' cbfstool, printing '$4'/'$5'/'$6' info.
+atombios_adder () {
+    if file_exists "$2" && file_exists "$3" ; then
+        if [ ! -f "./pci1002,$1.rom" ] ; then
+            printf "\n${byellow}WARNING${bend}: cannot find ./${bold}pci1002,$1.rom${bend} ,"
+            printf "\n         please re-apply ${bold}AMD atombios${bend} patch.\n"
+            encontinue
+###
+### https://review.coreboot.org/c/coreboot/+/58748
+### G505S AtomBIOS ROMs: known good binaries with a script to check their SHA256
+###
+           csb_patcher "atombios" "58748"  "5" "ec16106" "25fb1d06e19c17f1d9addc2f8910f96920551601f2a4d3084419517ef7423329" "$1" "AMD "
+        fi
+        if [   -f "./pci1002,$1.rom" ] ; then
+            atombios_adder_cbfs=$( "$2" "$3" print )
+            if checker "$atombios_adder_cbfs" "pci1002,$1.rom" ; then
+                printf "\n${bgreen}NOTE${bend}: ./${bold}pci1002,$1.rom${bend} for ${bold}$5 : $6${bend} is already at your $3.\n"
+            else
+                cbfs_emptyspacer "$1" "$2" "$3"
+                if yesno "\nAdd a ./${bold}pci1002,$1.rom${bend} for ${bold}$5 : $6${bend} to your $3 now? ${bold}$4${bend}" ", adding..." ; then
+                    if "$2" "$3" add -f "./pci1002,$1.rom" -n "pci1002,$1.rom" -t optionrom ; then
+                        printf "adding... ${bgreen}SUCCESS${bend}\n"
+                    else
+                        printf   "adding... ${bred}FAILURE${bend}\n"
+                        printf "${bold}NOTE:${bend} to try again, restart your last csb_patcher command to remake ./build/coreflop.rom and choose wisely\n"
+                        encontinue
+                    fi
+                else
+                    printf "\n${bold}You can add it later by running:${bend}"
+                    printf "\n${bold}        $2 $3 add -f ./pci1002,$1.rom -n pci1002,$1.rom -t optionrom${bend}\n\n"
+                fi
+            fi
+            return 0
+        else
+            printf "\n${byellow}WARNING${bend}: cannot find ./${bold}pci1002,$1.rom${bend} ,"
+            printf "\n         please re-apply ${bold}AMD atombios${bend} patch.\n"
+            encontinue
+            return 1
+        fi
+    else
+        return 1
+    fi
+}
+
+# Adds a '$1.img' floppy image to coreboot '$3' ROM using '$2' cbfstool, printing '$4' size and '$5' info.
+floppy_adder () {
+    if file_exists "$2" && file_exists "$3" ; then
+        if [ ! -f "./floppies/$1.img" ] ; then
+            cd "./floppies/"
+            floppy_downloader "$1"
+            cd "./../"
+        fi
+        if [   -f "./floppies/$1.img" ] ; then
+            if [ -f "./floppies/.$1" ] ; then
+                floppy_adder_cbfs=$( "$2" "$3" print )
+                if checker "$floppy_adder_cbfs" "floppyimg/$1.lzma" ; then
+                    printf "\n${bgreen}NOTE${bend}: ./floppies/${bold}$1.img${bend} is already at your $3.\n"
+                else
+                    if checker "$1" "plop" ; then
+                        printf "\n${byellow}WARNING${bend}: ./floppies/${bold}$1.img${bend} - is proprietary: all its' source code is closed !"
+                        printf "\n         Add it only if you really need it and trust the author of $1 project.\n"
+                        encontinue
+                    fi
+                    cbfs_emptyspacer "$1" "$2" "$3"
+                    if [ ! -z "${5:-}" ] ; then
+                        printf "\n${byellow}INFO${bend}: $5\n"
+                    fi
+                    if yesno "\nAdd a ./floppies/${bold}$1.img${bend} to your $3 now? ${bold}$4${bend}" ", adding..." ; then
+                        if "$2" "$3" add -f "./floppies/$1.img" -n "floppyimg/$1.lzma" -t raw -c lzma ; then
+                            printf "adding... ${bgreen}SUCCESS${bend}\n"
+                        else
+                            printf   "adding... ${bred}FAILURE${bend}\n"
+                            printf "${bold}NOTE:${bend} to try again, restart your last csb_patcher command to remake ./build/coreflop.rom and choose wisely\n"
+                            encontinue
+                        fi
+                    else
+                        printf "\n${bold}You can add it later by running:${bend}"
+                        printf "\n${bold}        $2 $3 add -f ./floppies/$1.img -n floppyimg/$1.lzma -t raw -c lzma${bend}\n\n"
+                    fi
+                fi
+                return 0
+            else
+                printf "\n${byellow}WARNING${bend}: there was a SHA256 mismatch for ./floppies/${bold}$1.img${bend} -"
+                printf "\n         check sha256sum manually: sha256sum ./floppies/${bold}$1.img${bend}\n"
+                encontinue
+                return 1
+            fi
+        else
+            printf "\n${byellow}WARNING${bend}: cannot find ./floppies/${bold}$1.img${bend} !\n"
+            printf "\n         Please re-download a set of floppies.\n"
+            encontinue
+            return 1
+        fi
+    else
+        return 1
+    fi
+}
+
+# Adds a set of AtomBIOS/floppies ('$1') to coreboot '$3' ROM copied to '$4', using '$2' cbfstool.
+cbfs_mass_adder () {
+    if ! grepcheck "how to submit coreboot changes" ./MAINTAINERS ; then
+        printf "\n${byellow}WARNING${bend}: not sure if I am inside the coreboot directory,"
+        printf "\n         trying to add a ${bold}$1${bend} set from here - could fail.\n\n"
+    fi
+    if file_exists "$2" && file_exists "$3" ; then
+        if checker "$1" "atom" || checker "$1" "flop" ; then
+            copier "$3" "$4"
+            printf "\n${bold}=== $4 - initial memory map${bend}\n\n"
+            "$2" "$4" print
+            printf "\n"
+            if checker "$1" "atom" ; then
+                atombios_adder "990b" "$2" "$4" "~62 K" "Lenovo G505S with A10-5750M"  "iGPU HD-8650G"
+                atombios_adder "6663" "$2" "$4" "~33 K" "Lenovo G505S with A10-5750M"  "dGPU HD-8570M"
+                atombios_adder "6665" "$2" "$4" "~32 K" "Lenovo G505S with A10-5750M"  "dGPU R5-M230"
+                atombios_adder "9830" "$2" "$4" "~59 K" "ASUS AM1I-A with Athlon-5370" "iGPU HD-8400 / R3-Series"
+                atombios_adder "990c" "$2" "$4" "~62 K" "ASUS A88XM-E with A10-6700"   "iGPU HD-8670D"
+            fi
+            if checker "$1" "flop" ; then
+                if [ ! -d "./floppies/" ] ; then
+                    printf "\n"
+                    floppy_mass_downloader
+                fi
+                printf "\n${bgreen}NOTE${bend}: default boot order - the last floppy added is the first floppy to boot!\n"
+                encontinue
+                floppy_adder "flopbird" "$2" "$4"     "   ~3 K" "FloppyBird: a FlappyBird-like game, use Space key to fly - https://github.com/mikebdp2/floppybird"
+                floppy_adder "plop"     "$2" "$4" "      ~75 K" "Plop: nice boot manager, sadly a closed-source - https://www.plop.at/en/bootmanagers.html"
+                floppy_adder "tatos"    "$2" "$4"  "     ~60 K" "tatOS: experimental OS for learning more about your hardware - https://github.com/tatimmer/tatOS"
+                floppy_adder "memtst32" "$2" "$4"     "  ~66 K" "Memtest86+ (32-bit): 32-bit utility for testing your RAM, packed as a floppy - https://www.memtest.org/"
+                floppy_adder "memtst64" "$2" "$4"     "  ~67 K" "Memtest86+ (64-bit): 64-bit utility for testing your RAM, packed as a floppy - https://www.memtest.org/"
+                floppy_adder "fiwix"    "$2" "$4"  "    ~429 K" "Fiwix: UNIX-like OS, has a boot manager and may be useful for research - https://www.fiwix.org/"
+                floppy_adder "snowdrop" "$2" "$4"     " ~182 K" "SnowdropOS: has some cool games and interesting software - http://sebastianmihai.com/snowdrop/"
+                floppy_adder "visopsys" "$2" "$4"     " ~441 K" "Visopsys: has a built-in disk partition editor and other system tools - https://visopsys.org/"
+                floppy_adder "michalos" "$2" "$4"     " ~612 K" "MichalOS: lots of games, piano & music (enable PWM at settings) - https://prochazkaml.github.io/michalos/"
+                floppy_adder "freedos"  "$2" "$4"    "  ~389 K" "FreeDOS: opensource DOS for legacy purposes (also can make 2.88MB floppies) - https://www.freedos.org/"
+                floppy_adder "kolibri"  "$2" "$4"    " ~1300 K" "KolibriOS master: assembly-based OS with GUI, many apps & networking - https://kolibrios.org/"
+                floppy_adder "kolcrpt"  "$2" "$4"    " ~1316 K" "KolibriOS 2026 with IRCC chat encryption mod - https://board.kolibrios.org/viewtopic.php?p=80204"
+                floppy_adder "flpnxath" "$2" "$4"     "~2801 K" "Only for G505S: Linux with WiFi and Atheros Ethernet - https://github.com/mikebdp2/floppinux-amd64net"
+                floppy_adder "flpnxrtl" "$2" "$4"     "~2818 K" "Only for other: Linux with WiFi and Realtek Ethernet - https://github.com/mikebdp2/floppinux-amd64net"
+            fi
+            printf "\n${bold}=== $4 - final memory map${bend}\n\n"
+            "$2" "$4" print
+            printf "\nYou can use ./build/${bold}coreflop.rom${bend} now !\n\n"
+            return 0
+        else
+            return 1
+        fi
+    else
+        return 1
+    fi
+}
+
+# Finds the files of '$1' extension, saves the result to '$2' log and prints a message with '$3'.
+csb_finder () {
+    csb_finder_files=$( find . -name "*.$1" )
+    if [ ! -z "$csb_finder_files" ] ; then
+        printf "%25s\n" "*.$1 - YES" >> "$2"
+        printf "\n${byellow}WARNING${bend}: found ${bold}*.$1${bend} files at these locations :\n"
+        printf "$csb_finder_files"
+        printf "\n  That means - Some patches $3\n"
+        encontinue
+        return 0
+    else
+        printf "%24s\n" "*.$1 - NO" >> "$2"
+        return 1
+    fi
+}
+
+# Prints a csb_patcher_log '$1' with a custom highlighting.
+csb_printer () {
+    if ! file_exists "$1" ; then
+        return 1
+    fi
+    while IFS= read -r csb_printer_line
+    do
+        case "$csb_printer_line" in
+            *"orig - YES"*)
+                printf "${csb_printer_line%???}${byellow}YES" # YELLOW
+                ;;
+            *"rej - YES"*)
+                printf "${csb_printer_line%???}${bred}YES" # RED
+                ;;
+            *"YES"*)
+                printf "${csb_printer_line%???}${bgreen}YES" # GREEN
+                ;;
+            *"orig - NO"*|*"rej - NO"*)
+                printf "${csb_printer_line%??}${bgreen}NO" # GREEN
+                ;;
+            *"NO"*)
+                printf "${csb_printer_line%??}${byellow}NO" # YELLOW
+                ;;
+            *"FAILURE_1"*)
+                printf "${csb_printer_line%?????????}${bred}FAILURE_1" # RED
+                ;;
+            *"FAILURE_2"*)
+                printf "${csb_printer_line%?????????}${bred}FAILURE_2" # RED
+                ;;
+            *"FAILURE_3"*)
+                printf "${csb_printer_line%?????????}${bred}FAILURE_3" # RED
+                ;;
+            *"\\\\"*)
+                printf "${bold}${csb_printer_line%?????}\\\\\!//" # ALIEN HAIR
+                ;;
+            *)
+                printf "${bold}$csb_printer_line"
+                ;;
+        esac
+        printf "${bend}\n"
+    done < "$1"
+    return 0
+}
+
+# Configure some popular options of a config file '$1'.
+csb_configurer () {
+    if file_exists "$1" ; then
+        csb_configurer_tmp="./.csb_configurer"
+        rm -f "$csb_configurer_tmp"
+        # Check if the configuration of this board is supported.
+        grepper "CONFIG_BOARD_" "$1" > "$csb_configurer_tmp"
+        if grepcheck "_LENOVO_G505S=y" "$csb_configurer_tmp" ; then
+            printf "\n\n${bgreen}[CONFIG]${bend} Questions about your Lenovo G505S\n"
+        else
+            if grepcheck "_ASUS_AM1I_A=y" "$csb_configurer_tmp" ; then
+                printf "\n\n${bgreen}[CONFIG]${bend} Questions about your ASUS AM1I-A\n"
+            else
+                if grepcheck "_ASUS_A88XM_E=y" "$csb_configurer_tmp" ; then
+                    printf "\n\n${bgreen}[CONFIG]${bend} Questions about your ASUS A88XM-E\n"
+                else
+                    printf "\n\n${byellow}WARNING${bend}: sorry, I do not know how to configure a board of ${bold}$1${bend}\n"
+                    encontinue
+                    return 1
+                fi
+            fi
+        fi
+        sedder "$1" "### CSB_CONFIGURER OPTIONS" ""
+        printf "### CSB_CONFIGURER OPTIONS\n" >> "$1"
+        ### RAM CONFIG
+        printf "\n${byellow}WARNING${bend}: now you will be asked about XMP, please research about your RAM sticks before replying."
+        printf "\n         1) Choosing a wrong RAM config (unavailable XMP profile) - will cause a coreboot failure."
+        printf "\n         2) Before choosing a XMP-1 or XMP-2 , make sure that ALL your installed RAM sticks have it."
+        printf "\n         3) Not choosing the XMP profile if it is there - will result in a lower RAM performance."
+        printf "\n         P.S. For the experts, CUSTOM RAM timings are available ONLY through the make menuconfig :"
+        printf "\n              Chipset -> AMD Platform Initialization -> DDR3 memory profile (<choice>) -> CUSTOM"
+        printf "\n              They will override what has been read from SPD and may also cause a coreboot failure.\n"
+        encontinue
+        sedder "$1"      "# CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_JEDEC is not set" ""
+        sedder "$1"        "CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_JEDEC=y" ""
+        sedder "$1"      "# CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_XMP_1 is not set" ""
+        sedder "$1"        "CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_XMP_1=y" ""
+        sedder "$1"      "# CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_XMP_2 is not set" ""
+        sedder "$1"        "CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_XMP_2=y" ""
+        sedder "$1"      "# CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_CUSTOM is not set" ""
+        sedder "$1"        "CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_CUSTOM=y" ""
+        if yesno "Do all of your installed RAM sticks have a XMP profile?" "" ; then
+            printf       "# CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_JEDEC is not set\n"  >> "$1"
+            if yesno "No for XMP-1 , Yes for XMP-2" "" ; then
+                printf   "# CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_XMP_1 is not set\n"  >> "$1"
+                printf     "CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_XMP_2=y\n"           >> "$1"
+            else
+                printf     "CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_XMP_1=y\n"           >> "$1"
+                printf   "# CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_XMP_2 is not set\n"  >> "$1"
+            fi
+        else
+            printf         "CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_JEDEC=y\n"           >> "$1"
+            printf       "# CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_XMP_1 is not set\n"  >> "$1"
+            printf       "# CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_XMP_2 is not set\n"  >> "$1"
+        fi
+            printf       "# CONFIG_CPU_AMD_AGESA_OPENSOURCE_MEM_CUSTOM is not set\n" >> "$1"
+        ### WIFI CONFIG
+        sedder "$1" "CONFIG_DRIVERS_WIFI_GENERIC=y" ""
+        sedder "$1" "# CONFIG_DRIVERS_INTEL_WIFI is not set" ""
+        sedder "$1" "CONFIG_DRIVERS_INTEL_WIFI=y" ""
+        if yesno "Do you have an Intel WiFi adapter?" "" ; then
+            sedder "$1" "CONFIG_DRIVERS_WIFI_GENERIC=y" ""
+            printf "CONFIG_DRIVERS_WIFI_GENERIC=y\n"          >> "$1"
+            printf "CONFIG_DRIVERS_INTEL_WIFI=y\n"            >> "$1"
+        else
+            printf "# CONFIG_DRIVERS_INTEL_WIFI is not set\n" >> "$1"
+        fi
+        sedder "$1" "# CONFIG_DRIVERS_MTK_WIFI is not set" ""
+        sedder "$1" "CONFIG_DRIVERS_MTK_WIFI=y" ""
+        if yesno "Do you have a Mediatek WiFi adapter?" "" ; then
+            sedder "$1" "CONFIG_DRIVERS_WIFI_GENERIC=y" ""
+            printf "CONFIG_DRIVERS_WIFI_GENERIC=y\n"          >> "$1"
+            printf "CONFIG_DRIVERS_MTK_WIFI=y\n"              >> "$1"
+        else
+            printf "# CONFIG_DRIVERS_MTK_WIFI is not set\n"   >> "$1"
+        fi
+        ### DGPU CONFIG FOR LENOVO G505S ONLY
+        if grepcheck "_LENOVO_G505S=y" "$csb_configurer_tmp" ; then
+            sedder "$1" "# CONFIG_AMD_DGPU_WITHOUT_EEPROM is not set" ""
+            sedder "$1" "CONFIG_AMD_DGPU_WITHOUT_EEPROM=y" ""
+            sedder "$1" "# CONFIG_VGA_BIOS_DGPU is not set" ""
+            sedder "$1" "CONFIG_VGA_BIOS_DGPU=y" ""
+            sedder "$1" "CONFIG_VGA_BIOS_DGPU_FILE=\"pci1002,6663.rom\"" ""
+            sedder "$1" "CONFIG_VGA_BIOS_DGPU_ID=\"1002,6663\"" ""
+            sedder "$1" "CONFIG_VGA_BIOS_DGPU_FILE=\"pci1002,6665.rom\"" ""
+            sedder "$1" "CONFIG_VGA_BIOS_DGPU_ID=\"1002,6665\"" ""
+            if yesno "Do you have a Discrete GPU?" "" ; then
+                printf     "CONFIG_AMD_DGPU_WITHOUT_EEPROM=y\n"               >> "$1"
+                printf     "CONFIG_VGA_BIOS_DGPU=y\n"                         >> "$1"
+                if yesno "No for HD-8570M , Yes for R5-M230" "" ; then
+                    printf "CONFIG_VGA_BIOS_DGPU_FILE=\"pci1002,6665.rom\"\n" >> "$1"
+                    printf "CONFIG_VGA_BIOS_DGPU_ID=\"1002,6665\"\n"          >> "$1"
+                else
+                    printf "CONFIG_VGA_BIOS_DGPU_FILE=\"pci1002,6663.rom\"\n" >> "$1"
+                    printf "CONFIG_VGA_BIOS_DGPU_ID=\"1002,6663\"\n"          >> "$1"
+                fi
+            else
+                printf   "# CONFIG_AMD_DGPU_WITHOUT_EEPROM is not set\n"      >> "$1"
+                printf   "# CONFIG_VGA_BIOS_DGPU is not set\n"                >> "$1"
+            fi
+        fi
+        ### SATA CONFIG
+        # HUDSON_SATA_MODE=0
+        sedder "$1" "# NATIVE" ""
+        sedder "$1" "CONFIG_HUDSON_SATA_MODE=0" ""
+        # HUDSON_SATA_MODE=1
+        sedder "$1" "# RAID" ""
+        sedder "$1" "CONFIG_HUDSON_SATA_MODE=1" ""
+        sedder "$1" "CONFIG_RAID_ROM_ID=\"1022,7802\"" ""
+        sedder "$1" "CONFIG_RAID_ROM_FILE=\"src/southbridge/amd/agesa/hudson/raid.bin\"" ""
+        sedder "$1" "CONFIG_RAID_MISC_ROM_FILE=\"src/southbridge/amd/agesa/hudson/misc.bin\"" ""
+        sedder "$1" "CONFIG_RAID_MISC_ROM_POSITION=0xFFF00000" ""
+        # HUDSON_SATA_MODE=2
+        sedder "$1" "# AHCI" ""
+        sedder "$1" "CONFIG_HUDSON_SATA_MODE=2" ""
+        sedder "$1" "CONFIG_AHCI_ROM_ID=\"1022,7801\"" ""
+        sedder "$1" "# CONFIG_HUDSON_AHCI_ROM is not set" ""
+        # HUDSON_SATA_MODE=3
+        sedder "$1" "# LEGACY IDE" ""
+        sedder "$1" "CONFIG_HUDSON_SATA_MODE=3" ""
+        # HUDSON_SATA_MODE=4
+        sedder "$1" "# IDE to AHCI" ""
+        sedder "$1" "CONFIG_HUDSON_SATA_MODE=4" ""
+        # HUDSON_SATA_MODE=5
+        sedder "$1" "# AHCI7804" ""
+        sedder "$1" "CONFIG_HUDSON_SATA_MODE=5" ""
+        sedder "$1" "CONFIG_AHCI_ROM_ID=\"1022,7804\"" ""
+        # HUDSON_SATA_MODE=6
+        sedder "$1" "# IDE to AHCI7804" ""
+        sedder "$1" "CONFIG_HUDSON_SATA_MODE=6" ""
+        sedder "$1" "# CONFIG_HUDSON_AHCI_ROM is not set" ""
+        # HUDSON_SATA_MODE SETUP
+        if yesno "Do you have a SSD? (enable AHCI if Y)" "" ; then
+            printf "# AHCI\n"                              >> "$1"
+            printf "CONFIG_HUDSON_SATA_MODE=2\n"           >> "$1"
+            printf "CONFIG_AHCI_ROM_ID=\"1022,7801\"\n"    >> "$1"
+            printf "# CONFIG_HUDSON_AHCI_ROM is not set\n" >> "$1"
+        else
+            printf "# NATIVE\n"                            >> "$1"
+            printf "CONFIG_HUDSON_SATA_MODE=0\n"           >> "$1"
+        fi
+        ### NO MORE CONFIGS
+        printf "\n"
+        rm -f "$csb_configurer_tmp"
+        return 0
+    else
+        return 1
+    fi
+}
+
+#
+# Conveniently and securely gets, checks SHA256 and installs a patch.
+# Arguments are the patch properties:
+#     $1 - new diff name, could be also a part of extracted scripts' filename
+#     $2 - change ID number,       part of download link to review.coreboot.org
+#     $3 - change revision number, part of download link to review.coreboot.org
+#     $4 - diff filename inside the downloaded archive, will be renamed to $1
+#     $5 - diff known good SHA256 checksum, will be used for SHA256 verification
+#     $6 - filepath where to save a csb_patcher_log which will be printed later
+#     $7 - info about the target of a patch, if not specified ("") it is common
+#
+csb_patcher () {
+    if ! wgetter "./patch?zip" "https://review.coreboot.org/changes/$2/revisions/$3/patch?zip" ; then
+        printf "${bold}^^^ ! Cannot download a $7$1 patch ! Check your Internet.${bend}\n"
+        printf "%31s\n" "$7$1 - FAILURE_1" >> "$6"
+        csb_printer "$6"
+        exit 1
+    fi
+    unzipper "./patch?zip"
+    mover "./$4.diff" "./$1.diff"
+    if verifier "./$1.diff" "$5" ; then
+        csb_patcher_patch_title=$( grepper "Subject" "./$1.diff" )
+        csb_patcher_patch_title=${csb_patcher_patch_title#?????????????????}
+        if [ "$1" = "dgpu" ] || [ "$1" = "irq" ] ; then
+            printf "will extract a ${bold}$7$1${bend} patch now...\n"
+            rm -f "./sha256sums_$1_correct.txt"
+            rm -f "./"*"_$1_patches.sh"
+            patch -p1 < "./$1.diff"
+            chmod +x "./"*"_$1_patches.sh"
+            "./get_$1_patches.sh"
+            if ! "./check_$1_patches.sh" ; then
+                printf "%31s\n" "$7$1 - FAILURE_3" >> "$6"
+                csb_printer "$6"
+                exit 1
+            fi
+        else
+            printf "${bold}$7$1${bend} patch could be applied now...\n"
+        fi
+        if [ "$1" = "dgpu" ] || [ "$1" = "atombios" ] || [ "$1" = "irq" ] || \
+           [ "$1" = "amdfw" ] || [ "$1" = "apicid" ] ||  [ "$1" = "seabios" ] || \
+           [ "$1" = "cfgsb" ] ; then
+            printf "\n\n${bgreen}[PATCH]${bend} $csb_patcher_patch_title\n\n"
+            if ! grepcheck "how to submit coreboot changes" ./MAINTAINERS ; then
+                printf "\n${byellow}WARNING${bend}: not sure if I am inside the coreboot directory,"
+                printf "\n         trying to add a ${bold}$1${bend} set from here - could fail.\n\n"
+            fi
+            if [ -f "./.$1" ] ; then
+                printf "\n${byellow}WARNING${bend}: found a '.$1' hidden file at the current directory,"
+                printf "\n         maybe you have applied this patch already.\n\n"
+            fi
+            if yesno "Apply a ${bold}$7$1${bend} patch now?" "" ; then
+                if [ "$1" = "dgpu" ] || [ "$1" = "irq" ] ; then
+                    "./apply_$1_patches.sh"
+                else
+                    if [ "$1" = "atombios" ] ; then
+                        rm -f "./sha256sums_$1_correct.txt"
+                        rm -f "./"*"_$1_roms.sh"
+                        rm -f "./pci1002,"*".rom"
+                        rm -f "./pci1002,"*".rom.txt"
+                    fi
+                    if [ "$1" = "seabios" ] ; then
+                        rm -f "./payloads/external/SeaBIOS/"*".patch"
+                    fi
+                    if [ "$1" = "cfgsb" ] ; then
+                        rm -f "./src/mainboard/asus/a88xm-e/config_seabios"
+                        rm -f "./src/mainboard/asus/am1i-a/config_seabios"
+                    fi
+                    patch -p1 < "./$1.diff"
+                    if [ "$1" = "atombios" ] ; then
+                        chmod +x "./"*"_$1_roms.sh"
+                        "./extract_$1_roms.sh"
+                        printf "\n"
+                        if ! "./check_$1_roms.sh" ; then
+                            printf "%31s\n" "$7$1 - FAILURE_3" >> "$6"
+                            csb_printer "$6"
+                            exit 1
+                        fi
+                    fi
+                fi
+                touch ".$1"
+                printf "%25s\n" "$7$1 - YES" >> "$6"
+                if [ "$1" = "atombios" ] ; then
+                    encontinue
+                fi
+            else
+                printf "%24s\n" "$7$1 - NO" >> "$6"
+                printf "\n${bold}You can apply it later by running:${bend}"
+                if [ "$1" = "dgpu" ] || [ "$1" = "irq" ] ; then
+                    printf "\n${bold}        ./apply_$1_patches.sh${bend}\n"
+                else
+                    printf "\n${bold}        patch -p1 < ./$1.diff${bend}\n"
+                fi
+                encontinue
+            fi
+        fi
+        if checker "$1" "config" ; then
+            rm -f "./configs/$1"*
+            patch -p1 < "./$1.diff"
+            printf "\n\n${bgreen}[PATCH]${bend} $csb_patcher_patch_title\n\n"
+            ls "./configs" > "./.csb_configs"
+            csb_patcher_config_name=$( grepper "$1" "./.csb_configs" )
+            rm -f "./.csb_configs"
+            printf "\n${bold}$csb_patcher_config_name could now be found at ./configs/${bend}"
+            printf "\n${bold}To use it, it should be copied to '.config' of your ./coreboot directory.${bend}\n\n"
+            if [ -f "./.config" ] ; then
+                printf "\n${byellow}WARNING${bend}: copying it to ./.config will overwrite your current '.config'\n\n"
+            fi
+            if yesno "Copy it to ./.config now?" "" ; then
+                copier "./configs/$csb_patcher_config_name" "./.config"
+                printf "\n"
+                printf "%25s\n" "$7$1 - YES" >> "$6"
+                if yesno "Configure this ./.config now?" "" ; then
+                    csb_configurer "./.config"
+                else
+                    printf "\n${bold}You can configure it later by running:${bend}"
+                    printf "\n${bold}        ./csb_patcher.sh config${bend}\n\n"
+                fi
+            else
+                printf "%24s\n" "$7$1 - NO" >> "$6"
+                printf "\n${bold}You can copy it later by running:${bend}"
+                printf "\n${bold}        cp ./configs/$csb_patcher_config_name ./.config${bend}\n"
+            fi
+            printf "\n${byellow}WARNING${bend}: important README at the beginning of ./$1.diff\n"
+            encontinue
+        fi
+        printf "\n\n"
+        return 0
+    else
+        printf "%31s\n" "$7$1 - FAILURE_2" >> "$6"
+        csb_printer "$6"
+        exit 1
+    fi
+}
+
+# Prints the currently-known errata: what you might need to do to ensure a stable coreboot build.
+csb_errata () {
+    printf "\n${byellow}WARNING${bend}: to restore AMD AGESA boards, downgrade a coreboot to revision"
+    printf "\n         mentioned in ${bold}restore_agesa.sh${bend} with ${bold}git reset --hard REVISION${bend}"
+    printf "\n         and then run ${bold}restore_agesa.sh${bend} before launching ${bold}csb_patcher.sh${bend}\n\n"
+    if yesno "This should be manually done before patching. ${bold}Continue patching?${bend}" "" ; then
+        return 0
+    else
+        exit 1
+    fi
+}
+
+#
+# Conveniently and securely gets, checks SHA256 and applies my collection of unofficial patches.
+#     $1 - filepath where to save a csb_patcher_log which will be printed later
+#
+csb_mass_patcher () {
+###
+### https://review.coreboot.org/c/coreboot/+/58745
+### G505S dGPU support: scripts for applying the unofficial (not-merged-yet) patches
+###
+               csb_patcher "dgpu" "58745"  "7" "0c95d41" "a2c9a0f2d5c74c3de3278afcd372f7731299cf2bfcc872b1b9fecff5a788e3c3" "$1" "G505S "
+###
+### https://review.coreboot.org/c/coreboot/+/58748
+### G505S AtomBIOS ROMs: known good binaries with a script to check their SHA256
+###
+           csb_patcher "atombios" "58748"  "5" "ec16106" "25fb1d06e19c17f1d9addc2f8910f96920551601f2a4d3084419517ef7423329" "$1" "AMD "
+###
+### https://review.coreboot.org/c/coreboot/+/48427
+### AMD good IRQs: scripts for applying the unofficial (not-merged-yet) patches
+###
+                csb_patcher "irq" "48427" "18" "039f67d" "1d917a56646fff22b1cad5eda9f2b1d3fb3e0c59054aabf4c505379632ad2334" "$1" "AMD good "
+###
+### https://review.coreboot.org/c/coreboot/+/79774
+### src/southbridge/amd/agesa/hudson: avoid the apu/amdfw wasting CBFS space
+###
+              csb_patcher "amdfw" "79774"  "1" "9ded40d" "c99efcddb22270f7cd573451f721067ed8a48759e2f5e9b946aaedc6f621eeaa" "$1" "stop-waster "
+###
+### https://review.coreboot.org/c/coreboot/+/91924
+### vendorcode/amd/agesa: restore missing APIC ID calculation method
+###
+             csb_patcher "apicid" "91924"  "1" "278e6d4" "ed52ef9a3b6fb2f21252ea0219e6aa7d30457259c9ced3151304936181f948df" "$1" "vendorcode "
+###
+### https://review.coreboot.org/c/coreboot/+/91769
+### payloads/seabios: Apply patches for extended menu and multiple floppies
+###
+            csb_patcher "seabios" "91769"  "3" "ca60998" "f171c9b87a3aa6b5b9d35f4cdcf5263c97c985050c9f0c0fd9d97b5cc1b9635f" "$1" ""
+###
+### https://review.coreboot.org/c/coreboot/+/91781
+### mainboard: set SeaBIOS ROM size to 256KB for G505S, A88XM-E and AM1I-A
+###
+              csb_patcher "cfgsb" "91781"  "1" "9e5bdc9" "2d1ff33cf45b0ea6488f68412afd38f903297bf312e5acc5c273eb1c822b20eb" "$1" "for-configs "
+###
+### https://review.coreboot.org/c/coreboot/+/79839
+### configs: add Lenovo G505S sample configuration (use with dGPU patches)
+###
+csb_patcher "config.lenovo_g505s" "79839" "10" "3124e37" "03218beeefff789d4a19aafa2e10cafdd79b012f0d92aaf5c24f66f449dfd075" "$1" ""
+###
+### https://review.coreboot.org/c/coreboot/+/79840
+### configs: add ASUS AM1I-A sample configuration
+###
+ csb_patcher "config.asus_am1i-a" "79840" "10" "6037d96" "d33f1c163bf7b551c393142ff21613a776371539e3814eaf5cc0125c70422adf" "$1" ""
+###
+### https://review.coreboot.org/c/coreboot/+/79841
+### configs: add ASUS A88XM-E sample configuration
+###
+csb_patcher "config.asus_a88xm-e" "79841"  "9" "d861bdf" "2a4bb861432001e59244b67d951b51123cdeab6eb7ac43f8e9855cac4133b873" "$1" ""
+
+    return 0
+}
+
+# Prints a usage info for this ./csb_patcher.sh script.
+csb_usage () {
+    printf "${bold}===============${bend} ${bgreen}USAGE${bend} ${bold}================${bend}\n\n"
+    printf "${bold}./csb_patcher.sh${bend}\n"
+    printf "  patch your coreboot source code\n\n"
+    printf "${bold}./csb_patcher.sh${bend} ${byellow}help${bend} ${bold}|${bend} ${byellow}usage${bend}\n"
+    printf "  print this usage info\n\n"
+    printf "${bold}==================== Before building :${bend}\n\n"
+    printf "${bold}./csb_patcher.sh ${byellow}config${bend}\n"
+    printf "  configure some popular options\n\n"
+    printf "${bold}==================== After building :${bend}\n\n"
+    printf "${bold}./csb_patcher.sh ${byellow}atom${bend}\n"
+    printf "  add the AtomBIOS ---> coreflop.rom\n\n"
+    printf "${bold}./csb_patcher.sh ${byellow}flop${bend}\n"
+    printf "  add the floppies ---> coreflop.rom\n\n"
+    printf "${bold}./csb_patcher.sh ${byellow}atomflop${bend}\n"
+    printf "  both AtomBIOS VGA ROMs and floppies\n\n"
+    printf "${bold}./csb_patcher.sh${bend} ${byellow}print${bend}\n"
+    printf "     print a ./.csb_patcher log\n\n"
+    return 0
+}
+
+#
+# MAIN PART OF A CSB_PATCHER SCRIPT
+#
+if [ -z "$1" ] ; then
+    csb_patcher_log="./.csb_patcher"
+    rm -f "$csb_patcher_log"
+    if ! command_exists "wget" || \
+       ! command_exists "unzip" || \
+       ! command_exists "sha256sum" || \
+       ! command_exists "patch" || \
+       ! command_exists "xxd" ; then
+        exit 1
+    fi
+    printf '\n\n'                                       >> "$csb_patcher_log"
+    printf '                \\\\!//\n'                  >> "$csb_patcher_log"
+    printf '                (o o)\n'                    >> "$csb_patcher_log"
+    printf '            oOOo-(_)-oOOo\n'                >> "$csb_patcher_log"
+    printf 'Hi! I am coreboot and SeaBIOS patcher\n'    >> "$csb_patcher_log"
+    printf 'Please send your feedback to\n'             >> "$csb_patcher_log"
+    printf '      Mike Banon <mikebdp2@gmail.com>\n'    >> "$csb_patcher_log"
+    csb_printer "$csb_patcher_log"
+    encontinue
+
+    csb_errata
+    printf '\n=== CSB_PATCHER LOG. Patches applied?\n'  >> "$csb_patcher_log"
+
+    csb_mass_patcher "$csb_patcher_log"
+
+    if yesno "Download a ${bold}floppies${bend} collection?" "" ; then
+        floppy_mass_downloader
+                      printf "%25s\n" "floppies - YES"  >> "$csb_patcher_log"
+    else
+        printf "\n"
+                      printf "%24s\n" "floppies - NO"   >> "$csb_patcher_log"
+    fi
+
+    printf '==================== Bad files found?\n'    >> "$csb_patcher_log"
+    csb_finder "orig" "$csb_patcher_log" "applied correctly although at slightly different lines, can ignore it."
+     csb_finder "rej" "$csb_patcher_log" "perhaps failed to apply, could result in a broken build! ${bred}Please report${bend}"
+
+    printf '\n'                                         >> "$csb_patcher_log"
+    csb_printer "$csb_patcher_log"
+    csb_usage
+else
+    case "$1" in
+        *"print"*)
+            csb_patcher_log="./.csb_patcher"
+            csb_printer "$csb_patcher_log"
+            ;;
+        *"config"*)
+            csb_configurer "./.config"
+            ;;
+        *"atom"*|*"flop"*)
+            if ! command_exists "wget" || \
+               ! command_exists "unzip" || \
+               ! command_exists "sha256sum" || \
+               ! command_exists "patch" || \
+               ! command_exists "xxd" ; then
+                exit 1
+            fi
+            cbfs_mass_adder "$1" "./build/cbfstool" "./build/coreboot.rom" "./build/coreflop.rom"
+            ;;
+        *"help"*|*"usage"*)
+            printf "\n"
+            csb_usage
+            ;;
+        *)
+            printf "\n${bred}ERROR${bend}: unknown argument ${bold}$1${bend} !\n\n"
+            csb_usage
+            exit 1
+            ;;
+    esac
+fi
+exit 0
+#

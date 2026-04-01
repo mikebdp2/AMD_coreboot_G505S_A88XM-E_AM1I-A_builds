@@ -1,0 +1,25 @@
+From 927a79f2b9fe0124a3e1bac2010308e62e5afae5 Mon Sep 17 00:00:00 2001
+From: Mike Banon <mike.banon@3mdeb.com>
+Date: Fri, 29 Oct 2021 18:47:38 +0300
+Subject: [PATCH] lenovo/g505s: enable the webcam
+
+WIP. I enabled a 14.5 FCH USB OHCI Controller hoping to get a webcam
+working. It still doesn't, but this change doesn't have any downsides.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+Change-Id: I795471e22ddfd6be1837c4278dd01b998de75114
+---
+
+diff --git a/src/mainboard/lenovo/g505s/devicetree.cb b/src/mainboard/lenovo/g505s/devicetree.cb
+index 4b4df36..fba2300 100644
+--- a/src/mainboard/lenovo/g505s/devicetree.cb
++++ b/src/mainboard/lenovo/g505s/devicetree.cb
+@@ -41,7 +41,7 @@
+ 				end
+ 			end
+ 			device pci 14.4 on  end # FCH PCI Bridge [1022:780f]
+-			device pci 14.5 off end # USB 2
++			device pci 14.5 on  end # FCH USB OHCI Controller
+ 			device pci 14.6 off end # Gec
+ 			device pci 14.7 off end # SD
+ 			device pci 15.0 off end # PCIe 0

@@ -1,0 +1,60 @@
+From 278e6d4c08bac2f9f6207258cd1e1b5ad5912d31 Mon Sep 17 00:00:00 2001
+From: Mike Banon <mikebdp2@gmail.com>
+Date: Mon, 30 Mar 2026 20:06:59 +0300
+Subject: [PATCH] vendorcode/amd/agesa: restore missing APIC ID calculation method
+
+Restore missing APIC ID calculation method to resolve multiple
+assertion errors during the late stage boot process.
+
+Change-Id: Ib90a8d498d278fa7a88738f79452e49ff23490cf
+Signed-off-by: Mike Rothfuss <git@mikerothfuss.com>
+Reviewed-by: Mike Banon <mikebdp2@gmail.com>
+---
+
+diff --git a/src/vendorcode/amd/agesa/f14/Config/OptionCpuFamiliesInstall.h b/src/vendorcode/amd/agesa/f14/Config/OptionCpuFamiliesInstall.h
+index 3fe6c02..4f590b8 100644
+--- a/src/vendorcode/amd/agesa/f14/Config/OptionCpuFamiliesInstall.h
++++ b/src/vendorcode/amd/agesa/f14/Config/OptionCpuFamiliesInstall.h
+@@ -245,7 +245,10 @@
+ #if AGESA_ENTRY_INIT_LATE_RESTORE == TRUE
+ #endif
+ 
+-#if AGESA_ENTRY_INIT_GENERAL_SERVICES == TRUE
++#if (AGESA_ENTRY_INIT_RESET == TRUE) || (AGESA_ENTRY_INIT_EARLY == TRUE) || \
++    (AGESA_ENTRY_INIT_ENV == TRUE) || (AGESA_ENTRY_INIT_MID == TRUE) || (AGESA_ENTRY_INIT_POST == TRUE) || \
++    (AGESA_ENTRY_INIT_LATE == TRUE) || (AGESA_ENTRY_INIT_S3SAVE == TRUE) || (AGESA_ENTRY_INIT_RESUME == TRUE) || \
++    (AGESA_ENTRY_INIT_LATE_RESTORE == TRUE) || (AGESA_ENTRY_INIT_GENERAL_SERVICES == TRUE)
+   #undef ID_POSITION_INITIAL_APICID
+   #define ID_POSITION_INITIAL_APICID  TRUE
+ #endif
+diff --git a/src/vendorcode/amd/agesa/f15tn/Config/OptionCpuFamiliesInstall.h b/src/vendorcode/amd/agesa/f15tn/Config/OptionCpuFamiliesInstall.h
+index 05c29e3..eef3687 100644
+--- a/src/vendorcode/amd/agesa/f15tn/Config/OptionCpuFamiliesInstall.h
++++ b/src/vendorcode/amd/agesa/f15tn/Config/OptionCpuFamiliesInstall.h
+@@ -245,7 +245,10 @@
+ #if AGESA_ENTRY_INIT_LATE_RESTORE == TRUE
+ #endif
+ 
+-#if AGESA_ENTRY_INIT_GENERAL_SERVICES == TRUE
++#if (AGESA_ENTRY_INIT_RESET == TRUE) || (AGESA_ENTRY_INIT_EARLY == TRUE) || \
++    (AGESA_ENTRY_INIT_ENV == TRUE) || (AGESA_ENTRY_INIT_MID == TRUE) || (AGESA_ENTRY_INIT_POST == TRUE) || \
++    (AGESA_ENTRY_INIT_LATE == TRUE) || (AGESA_ENTRY_INIT_S3SAVE == TRUE) || (AGESA_ENTRY_INIT_RESUME == TRUE) || \
++    (AGESA_ENTRY_INIT_LATE_RESTORE == TRUE) || (AGESA_ENTRY_INIT_GENERAL_SERVICES == TRUE)
+   #undef ID_POSITION_INITIAL_APICID
+   #define ID_POSITION_INITIAL_APICID  TRUE
+ #endif
+diff --git a/src/vendorcode/amd/agesa/f16kb/Config/OptionCpuSpecificServicesInstall.h b/src/vendorcode/amd/agesa/f16kb/Config/OptionCpuSpecificServicesInstall.h
+index 07a89c2..2dad432 100644
+--- a/src/vendorcode/amd/agesa/f16kb/Config/OptionCpuSpecificServicesInstall.h
++++ b/src/vendorcode/amd/agesa/f16kb/Config/OptionCpuSpecificServicesInstall.h
+@@ -923,7 +923,9 @@
+ 
+ // Member: (PF_CORE_ID_POSITION_IN_INITIAL_APIC_ID) CoreIdPositionInInitialApicId
+ #if (AGESA_ENTRY_INIT_RESET == TRUE) || (AGESA_ENTRY_INIT_EARLY == TRUE) || \
+-    (AGESA_ENTRY_INIT_POST == TRUE) || (AGESA_ENTRY_INIT_GENERAL_SERVICES == TRUE)
++    (AGESA_ENTRY_INIT_ENV == TRUE) || (AGESA_ENTRY_INIT_MID == TRUE) || (AGESA_ENTRY_INIT_POST == TRUE) || \
++    (AGESA_ENTRY_INIT_LATE == TRUE) || (AGESA_ENTRY_INIT_S3SAVE == TRUE) || (AGESA_ENTRY_INIT_RESUME == TRUE) || \
++    (AGESA_ENTRY_INIT_LATE_RESTORE == TRUE) || (AGESA_ENTRY_INIT_GENERAL_SERVICES == TRUE)
+   #ifdef CpuSrvcCoreIdPositionInInitialApicId
+     #define FinalCpuSrvcCoreIdPositionInInitialApicId           CpuSrvcCoreIdPositionInInitialApicId
+     #ifndef EXTERN_FINALCPUSRVCCOREIDPOSITIONININITIALAPICID

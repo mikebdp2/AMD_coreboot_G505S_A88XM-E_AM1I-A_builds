@@ -1,0 +1,390 @@
+From f001cb1b841199d34dd0b257161012c56b1241c8 Mon Sep 17 00:00:00 2001
+From: Mike Banon <mikebdp2@gmail.com>
+Date: Mon, 07 Dec 2020 06:59:39 +0300
+Subject: [PATCH] asus/a88xm-e: update the ACPI routing to match the new IRQ routing
+
+Update the ACPI routing in accordance with the new IRQ tables.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+Change-Id: I53850e89bbc192b11cbc56525287ebbb05094b22
+---
+
+diff --git a/src/mainboard/asus/a88xm-e/acpi/routing.asl b/src/mainboard/asus/a88xm-e/acpi/routing.asl
+index 99511c5..1f75602 100644
+--- a/src/mainboard/asus/a88xm-e/acpi/routing.asl
++++ b/src/mainboard/asus/a88xm-e/acpi/routing.asl
+@@ -4,217 +4,219 @@
+ 	Name(PR0, Package(){
+ 		/* NB devices */
+ 		/* Bus 0, Dev 0 - F15 Host Controller */
++		/* IOMMU:			0:00.02 - IRQ 3 */
+ 		Package(){0x0000FFFF, 0, INTA, 0 },
+ 		Package(){0x0000FFFF, 1, INTB, 0 },
+ 		Package(){0x0000FFFF, 2, INTC, 0 },
+ 		Package(){0x0000FFFF, 3, INTD, 0 },
++		/* Bus 0, Dev 1 - PCI Bridge for Internal Graphics (IGP) */
++		/* APU Integrated Graphics:	0:01.00 - IRQ 3 */
++		Package(){0x0001FFFF, 0, INTA, 0 },
++		/* APU HDMI Audio Controller:	0:01.01 - IRQ 4 */
++		Package(){0x0001FFFF, 1, INTB, 0 },
+ 
+-		/* Bus 0, Dev 1 - PCI Bridge for Internal Graphics(IGP) */
+-		Package(){0x0001FFFF, 0, INTB, 0 },
+-		Package(){0x0001FFFF, 1, INTC, 0 },
+-
+-		/* Bus 0, Dev 2 - PCIe Bridge for x16 slot */
+-		Package(){0x0002FFFF, 0, INTC, 0 },
+-		Package(){0x0002FFFF, 1, INTD, 0 },
+-		Package(){0x0002FFFF, 2, INTA, 0 },
+-		Package(){0x0002FFFF, 3, INTB, 0 },
+-
+-		/* Bus 0, Dev 3 - PCIe graphics port 1 bridge */
+-
+-		/* Bus 0, Dev 4 - PCIe Bridge for 4x slot */
++		/* Bus 0, Dev 2 - PCIe Bridge for x16 PCIe Slot (GFX0) */
++		/* PCIe GPP to dGPU 1:00.00:	0:02.00 - IRQ 3 */
++		Package(){0x0002FFFF, 0, INTA, 0 },
++		Package(){0x0002FFFF, 1, INTB, 0 },
++		Package(){0x0002FFFF, 2, INTC, 0 },
++		Package(){0x0002FFFF, 3, INTD, 0 },
++		/* Bus 0, Dev 4 - PCIe Bridge for x1 PCIe Slot */
++		/* PCIe GPP to 2:00.00:		0:04.00 - IRQ 3 */
+ 		Package(){0x0004FFFF, 0, INTA, 0 },
+ 		Package(){0x0004FFFF, 1, INTB, 0 },
+ 		Package(){0x0004FFFF, 2, INTC, 0 },
+ 		Package(){0x0004FFFF, 3, INTD, 0 },
+-
+-		/* Bus 0, Dev 5 - General purpose PCIe bridge 5 */
++		/* Bus 0, Dev 5 - PCIe Bridge for x1 PCIe Slot */
++		/* PCIe GPP to 3:00.00:		0:05.00 - IRQ 4 */
++		Package(){0x0005FFFF, 0, INTB, 0 },
++		Package(){0x0005FFFF, 1, INTC, 0 },
++		Package(){0x0005FFFF, 2, INTD, 0 },
++		Package(){0x0005FFFF, 3, INTA, 0 },
+ 		/* Bus 0, Dev 6 - PCIe Bridge for Ethernet Chip */
+-		/* Bus 0, Dev 7 - PCIe Bridge for x1 PCIe Slot */
+-		/* Bus 0, Dev 8 - Southbridge port (normally hidden) */
+-
+-		/* Bus 0, Dev 20 -
+-		 *        F0: SMBus/ACPI, F1: IDE, F2: HDAudio, F3: LPC, F4: PCIBridge, F5: USB
+-		 */
+-		Package(){0x0014FFFF, 0, INTA, 0 },
+-		Package(){0x0014FFFF, 1, INTB, 0 },
+-		Package(){0x0014FFFF, 2, INTC, 0 },
+-		Package(){0x0014FFFF, 3, INTD, 0 },
+-
+-		/* Bus 0, Dev 18,19,22 - USB: OHCI @ func 0, EHCI @ func 2 */
+-		Package(){0x0012FFFF, 0, INTC, 0 },
+-		Package(){0x0012FFFF, 1, INTB, 0 },
+-
+-		Package(){0x0013FFFF, 0, INTC, 0 },
+-		Package(){0x0013FFFF, 1, INTB, 0 },
+-
+-		Package(){0x0016FFFF, 0, INTC, 0 },
+-		Package(){0x0016FFFF, 1, INTB, 0 },
++		/* PCIe GPP to Eth 4:00.00:	0:06.00 - IRQ 4 */
++		Package(){0x0006FFFF, 0, INTB, 0 },
++		Package(){0x0006FFFF, 1, INTC, 0 },
++		Package(){0x0006FFFF, 2, INTD, 0 },
++		Package(){0x0006FFFF, 3, INTA, 0 },
+ 
+ 		/* SB devices */
+-		/* Bus 0, Dev 16 - USB: XHCI func 0, 1 */
++		/* USB XHCI:			0:10.00 - IRQ 5 */
+ 		Package(){0x0010FFFF, 0, INTC, 0 },
+-		Package(){0x0010FFFF, 1, INTB, 0 },
+-
+-		/* Bus 0, Dev 17 - SATA controller */
++		/* SATA:			0:11.00 - IRQ 7 */
+ 		Package(){0x0011FFFF, 0, INTD, 0 },
+-
+-		/* Bus 0, Dev 21 PCIe Bridge */
+-		Package(){0x0015FFFF, 0, INTA, 0 },
+-		Package(){0x0015FFFF, 1, INTB, 0 },
+-		Package(){0x0015FFFF, 2, INTC, 0 },
+-		Package(){0x0015FFFF, 3, INTD, 0 },
++		/* USB OHCI1:			0:12.00 - IRQ 5 */
++		Package(){0x0012FFFF, 0, INTC, 0 },
++		/* USB EHCI1:			0:12.02 - IRQ 4 */
++		Package(){0x0012FFFF, 1, INTB, 0 },
++		/* USB OHCI2:			0:13.00 - IRQ 5 */
++		Package(){0x0013FFFF, 0, INTC, 0 },
++		/* USB EHCI2:			0:13.02 - IRQ 4 */
++		Package(){0x0013FFFF, 1, INTB, 0 },
++		/* USB OHCI3:			0:16.00 - IRQ 5 */
++		Package(){0x0016FFFF, 0, INTC, 0 },
++		/* USB EHCI3:			0:16.02 - IRQ 4 */
++		Package(){0x0016FFFF, 1, INTB, 0 },
++		/* Bus 0, Dev 20 - F0:SMBus/ACPI,F1:IDE;F2:HDAudio;F3:LPC;F4:PCIBridge;F5:USB */
++		/* Southbridge HD Audio:	0:14.02 - IRQ 3 */
++		Package(){0x0014FFFF, 0, INTA, 0 },
++		Package(){0x0014FFFF, 1, INTB, 0 },
++		/* USB OHCI4:			0:14.05 - IRQ 5 */
++		Package(){0x0014FFFF, 2, INTC, 0 },
++		Package(){0x0014FFFF, 3, INTD, 0 },
++		/* Southbridge PCIe Port 1:	0:15.00 - IRQ 4 */
++		Package(){0x0015FFFF, 0, INTB, 0 },
++		/* Southbridge PCIe Port 2:	0:15.01 - IRQ 5 */
++		Package(){0x0015FFFF, 1, INTC, 0 },
++		/* Southbridge PCIe Port 3:	0:15.02 - IRQ 7 */
++		Package(){0x0015FFFF, 2, INTD, 0 },
++		/* Southbridge PCIe Port 4:	0:15.03 - IRQ 3 */
++		Package(){0x0015FFFF, 3, INTA, 0 },
+ 	})
+ 
+ 	Name(APR0, Package(){
+ 		/* NB devices in APIC mode */
+ 		/* Bus 0, Dev 0 - F15 Host Controller */
++		/* IOMMU:			0:00.02 - IRQ 3 */
+ 		Package(){0x0000FFFF, 0, 0, 16 },
+ 		Package(){0x0000FFFF, 1, 0, 17 },
+ 		Package(){0x0000FFFF, 2, 0, 18 },
+ 		Package(){0x0000FFFF, 3, 0, 19 },
++		/* Bus 0, Dev 1 - PCI Bridge for Internal Graphics (IGP) */
++		/* APU Integrated Graphics:	0:01.00 - IRQ 3 */
++		Package(){0x0001FFFF, 0, 0, 16 },
++		/* APU HDMI Audio Controller:	0:01.01 - IRQ 4 */
++		Package(){0x0001FFFF, 1, 0, 17 },
+ 
+-		/* Bus 0, Dev 1 - PCI Bridge for Internal Graphics(IGP) */
+-		Package(){0x0001FFFF, 0, 0, 17 },
+-		Package(){0x0001FFFF, 1, 0, 18 },
+-
+-		/* Bus 0, Dev 2 - PCIe Bridge for x16 PCIe Slot */
+-		Package(){0x0002FFFF, 0, 0, 18 },
+-		Package(){0x0002FFFF, 1, 0, 19 },
+-		Package(){0x0002FFFF, 2, 0, 16 },
+-		Package(){0x0002FFFF, 3, 0, 17 },
+-
+-		/* Bus 0, Dev 3 - PCIe graphics port 1 bridge */
+-
+-		/* Bus 0, Dev 4 - PCIe Bridge for x4 PCIe Slot black */
++		/* Bus 0, Dev 2 - PCIe Bridge for x16 PCIe Slot (GFX0) */
++		/* PCIe GPP to dGPU 1:00.00:	0:02.00 - IRQ 3 */
++		Package(){0x0002FFFF, 0, 0, 16 },
++		Package(){0x0002FFFF, 1, 0, 17 },
++		Package(){0x0002FFFF, 2, 0, 18 },
++		Package(){0x0002FFFF, 3, 0, 19 },
++		/* Bus 0, Dev 4 - PCIe Bridge for x1 PCIe Slot */
++		/* PCIe GPP to 2:00.00:		0:04.00 - IRQ 3 */
+ 		Package(){0x0004FFFF, 0, 0, 16 },
+ 		Package(){0x0004FFFF, 1, 0, 17 },
+ 		Package(){0x0004FFFF, 2, 0, 18 },
+ 		Package(){0x0004FFFF, 3, 0, 19 },
+-
+-		/* Bus 0, Dev 5 - General purpose PCIe bridge 5 */
+-		/* Bus 0, Dev 6 - General purpose PCIe bridge 6 */
+-		/* Bus 0, Dev 7 - PCIe Bridge for network card */
+-		/* Bus 0, Dev 8 - Southbridge port (normally hidden) */
+-
+-		/* Bus 0, Dev 20 -
+-		 *        F0: SMBus/ACPI, F1: IDE, F2: HDAudio, F3: LPC, F4: PCIBridge, F5: USB
+-		 */
+-		Package(){0x0014FFFF, 0, 0, 16 },
+-		Package(){0x0014FFFF, 1, 0, 17 },
+-		Package(){0x0014FFFF, 2, 0, 18 },
+-		Package(){0x0014FFFF, 3, 0, 19 },
++		/* Bus 0, Dev 5 - PCIe Bridge for x1 PCIe Slot */
++		/* PCIe GPP to 3:00.00:		0:05.00 - IRQ 4 */
++		Package(){0x0005FFFF, 0, 0, 17 },
++		Package(){0x0005FFFF, 1, 0, 18 },
++		Package(){0x0005FFFF, 2, 0, 19 },
++		Package(){0x0005FFFF, 3, 0, 16 },
++		/* Bus 0, Dev 6 - PCIe Bridge for Ethernet Chip */
++		/* PCIe GPP to Eth 4:00.00:	0:06.00 - IRQ 4 */
++		Package(){0x0006FFFF, 0, 0, 17 },
++		Package(){0x0006FFFF, 1, 0, 18 },
++		Package(){0x0006FFFF, 2, 0, 19 },
++		Package(){0x0006FFFF, 3, 0, 16 },
+ 
+ 		/* SB devices in APIC mode */
+-		/* Bus 0, Dev 18,19,22 - USB: OHCI @ func 0, EHCI @ func 2 */
+-		Package(){0x0012FFFF, 0, 0, 18 },
+-		Package(){0x0012FFFF, 1, 0, 17 },
+-
+-		Package(){0x0013FFFF, 0, 0, 18 },
+-		Package(){0x0013FFFF, 1, 0, 17 },
+-
+-		Package(){0x0016FFFF, 0, 0, 18 },
+-		Package(){0x0016FFFF, 1, 0, 17 },
+-
+-		/* Bus 0, Dev 16 - USB: XHCI func 0, 1 */
+-		Package(){0x0010FFFF, 0, 0, 0x12},
+-		Package(){0x0010FFFF, 1, 0, 0x11},
+-
+-		/* Bus 0, Dev 17 - SATA controller */
++		/* USB XHCI:			0:10.00 - IRQ 5 */
++		Package(){0x0010FFFF, 0, 0, 18 },
++		/* SATA:			0:11.00 - IRQ 7 */
+ 		Package(){0x0011FFFF, 0, 0, 19 },
+-
+-		/* Bus 0, Dev 21 PCIE Bridge */
++		/* USB OHCI1:			0:12.00 - IRQ 5 */
++		Package(){0x0012FFFF, 0, 0, 18 },
++		/* USB EHCI1:			0:12.02 - IRQ 4 */
++		Package(){0x0012FFFF, 1, 0, 17 },
++		/* USB OHCI2:			0:13.00 - IRQ 5 */
++		Package(){0x0013FFFF, 0, 0, 18 },
++		/* USB EHCI2:			0:13.02 - IRQ 4 */
++		Package(){0x0013FFFF, 1, 0, 17 },
++		/* USB OHCI3:			0:16.00 - IRQ 5 */
++		Package(){0x0016FFFF, 0, 0, 18 },
++		/* USB EHCI3:			0:16.02 - IRQ 4 */
++		Package(){0x0016FFFF, 1, 0, 17 },
++		/* Bus 0, Dev 20 - F0:SMBus/ACPI, F1:IDE; F2:HDAudio; F3:LPC; F4:PCIBridge; F5:USB */
++		/* Southbridge HD Audio:	0:14.02 - IRQ 3 */
++		Package(){0x0014FFFF, 0, 0, 16 },
++		Package(){0x0014FFFF, 1, 0, 17 },
++		/* USB OHCI4:			0:14.05 - IRQ 5 */
++		Package(){0x0014FFFF, 2, 0, 18 },
++		Package(){0x0014FFFF, 3, 0, 19 },
++		/* Southbridge PCIe Port 1:	0:15.00 - IRQ 4 */
+ 		Package(){0x0015FFFF, 0, 0, 17 },
++		/* Southbridge PCIe Port 2:	0:15.01 - IRQ 5 */
+ 		Package(){0x0015FFFF, 1, 0, 18 },
++		/* Southbridge PCIe Port 3:	0:15.02 - IRQ 7 */
+ 		Package(){0x0015FFFF, 2, 0, 19 },
++		/* Southbridge PCIe Port 4:	0:15.03 - IRQ 3 */
+ 		Package(){0x0015FFFF, 3, 0, 16 },
+ 	})
+ 
+ 	Name(PS2, Package(){
+-		/* The external GFX - Hooked to PCIe slot 2 */
+-		Package(){0x0000FFFF, 0, INTD, 0 },
+-		Package(){0x0000FFFF, 1, INTA, 0 },
+-		Package(){0x0000FFFF, 2, INTB, 0 },
+-		Package(){0x0000FFFF, 3, INTC, 0 },
++		/* Discrete Graphics (dGPU) 1:00.00 behind a 0:02.00 PCIe GPP - IRQ 3 */
++		Package(){0x0000FFFF, 0, INTA, 0 },
++		Package(){0x0000FFFF, 1, INTB, 0 },
++		Package(){0x0000FFFF, 2, INTC, 0 },
++		Package(){0x0000FFFF, 3, INTD, 0 },
+ 	})
+ 	Name(APS2, Package(){
+-		/* The external GFX - Hooked to PCIe slot 2 */
+-		Package(){0x0000FFFF, 0, 0, 18 },
+-		Package(){0x0000FFFF, 1, 0, 19 },
+-		Package(){0x0000FFFF, 2, 0, 16 },
+-		Package(){0x0000FFFF, 3, 0, 17 },
++		/* Discrete Graphics (dGPU) 1:00.00 behind a 0:02.00 PCIe GPP - IRQ 3 */
++		Package(){0x0000FFFF, 0, 0, 16 },
++		Package(){0x0000FFFF, 1, 0, 17 },
++		Package(){0x0000FFFF, 2, 0, 18 },
++		Package(){0x0000FFFF, 3, 0, 19 },
+ 	})
+-
+ 	/* black slot */
+ 	Name(PS4, Package(){
+-		/* PCIe slot - Hooked to PCIe slot 4 */
++		/* 2:00.00 behind a 0:04.00 PCIe GPP - IRQ 3 */
+ 		Package(){0x0000FFFF, 0, INTA, 0 },
+ 		Package(){0x0000FFFF, 1, INTB, 0 },
+ 		Package(){0x0000FFFF, 2, INTC, 0 },
+ 		Package(){0x0000FFFF, 3, INTD, 0 },
+ 	})
+ 	Name(APS4, Package(){
+-		/* PCIe slot - Hooked to PCIe slot 4 */
++		/* 2:00.00 behind a 0:04.00 PCIe GPP - IRQ 3 */
+ 		Package(){0x0000FFFF, 0, 0, 16 },
+ 		Package(){0x0000FFFF, 1, 0, 17 },
+ 		Package(){0x0000FFFF, 2, 0, 18 },
+ 		Package(){0x0000FFFF, 3, 0, 19 },
+ 	})
+-
+ 	Name(PS5, Package(){
+-		/* PCIe slot - Hooked to PCIe slot 5 */
++		/* 3:00.00 behind a 0:05.00 PCIe GPP - IRQ 4 */
+ 		Package(){0x0000FFFF, 0, INTB, 0 },
+ 		Package(){0x0000FFFF, 1, INTC, 0 },
+ 		Package(){0x0000FFFF, 2, INTD, 0 },
+ 		Package(){0x0000FFFF, 3, INTA, 0 },
+ 	})
+ 	Name(APS5, Package(){
+-		/* PCIe slot - Hooked to PCIe slot 5 */
++		/* 3:00.00 behind a 0:05.00 PCIe GPP - IRQ 4 */
+ 		Package(){0x0000FFFF, 0, 0, 17 },
+ 		Package(){0x0000FFFF, 1, 0, 18 },
+ 		Package(){0x0000FFFF, 2, 0, 19 },
+ 		Package(){0x0000FFFF, 3, 0, 16 },
+ 	})
+-
+ 	Name(PS6, Package(){
+-		/* PCIe slot - Hooked to PCIe slot 6 */
+-		Package(){0x0000FFFF, 0, INTC, 0 },
+-		Package(){0x0000FFFF, 1, INTD, 0 },
+-		Package(){0x0000FFFF, 2, INTA, 0 },
+-		Package(){0x0000FFFF, 3, INTB, 0 },
++		/* Onboard Ethernet (Eth) 4:00.00 behind a 0:06.00 PCIe GPP - IRQ 4 */
++		Package(){0x0000FFFF, 0, INTB, 0 },
++		Package(){0x0000FFFF, 1, INTC, 0 },
++		Package(){0x0000FFFF, 2, INTD, 0 },
++		Package(){0x0000FFFF, 3, INTA, 0 },
+ 	})
+ 	Name(APS6, Package(){
+-		/* PCIe slot - Hooked to PCIe slot 6 */
+-		Package(){0x0000FFFF, 0, 0, 18 },
+-		Package(){0x0000FFFF, 1, 0, 19 },
+-		Package(){0x0000FFFF, 2, 0, 16 },
+-		Package(){0x0000FFFF, 3, 0, 17 },
++		/* Onboard Ethernet (Eth) 4:00.00 behind a 0:06.00 PCIe GPP - IRQ 4 */
++		Package(){0x0000FFFF, 0, 0, 17 },
++		Package(){0x0000FFFF, 1, 0, 18 },
++		Package(){0x0000FFFF, 2, 0, 19 },
++		Package(){0x0000FFFF, 3, 0, 16 },
+ 	})
+-
+ 	Name(PS7, Package(){
+-		/* The onboard Ethernet chip - Hooked to PCIe slot 7 */
+-		Package(){0x0000FFFF, 0, INTD, 0 },
+-		Package(){0x0000FFFF, 1, INTA, 0 },
+-		Package(){0x0000FFFF, 2, INTB, 0 },
+-		Package(){0x0000FFFF, 3, INTC, 0 },
+ 	})
+-
+ 	Name(APS7, Package(){
+-		/* The onboard Ethernet chip - Hooked to PCIe slot 7 */
+-		Package(){0x0000FFFF, 0, 0, 19 },
+-		Package(){0x0000FFFF, 1, 0, 16 },
+-		Package(){0x0000FFFF, 2, 0, 17 },
+-		Package(){0x0000FFFF, 3, 0, 18 },
+ 	})
+-
+ 	Name(PBR0, Package(){
+-		/* PCIx1 on SB */
++		/* PCIe x1 slot on SB - Hooked to PCIe Bridge 0 */
+ 		Package(){0x0000FFFF, 0, INTA, 0 },
+ 		Package(){0x0000FFFF, 1, INTB, 0 },
+ 		Package(){0x0000FFFF, 2, INTC, 0 },
+ 		Package(){0x0000FFFF, 3, INTD, 0 },
+ 	})
+ 	Name(ABR0, Package(){
+-		/* PCIx1 on SB */
++		/* PCIe x1 slot on SB - Hooked to PCIe Bridge 0 */
+ 		Package(){0x0000FFFF, 0, 0, 0x10 },
+ 		Package(){0x0000FFFF, 1, 0, 0x11 },
+ 		Package(){0x0000FFFF, 2, 0, 0x12 },
+@@ -222,21 +224,20 @@
+ 	})
+ 
+ 	Name(PBR1, Package(){
+-		/* Onboard network */
++		/* Onboard network - Hooked to PCIe Bridge 1 */
+ 		Package(){0x0000FFFF, 0, INTB, 0 },
+ 		Package(){0x0000FFFF, 1, INTC, 0 },
+ 		Package(){0x0000FFFF, 2, INTD, 0 },
+ 		Package(){0x0000FFFF, 3, INTA, 0 },
+ 	})
+ 	Name(ABR1, Package(){
+-		/* Onboard network */
++		/* Onboard network - Hooked to PCIe Bridge 1 */
+ 		Package(){0x0000FFFF, 0, 0, 0x11 },
+ 		Package(){0x0000FFFF, 1, 0, 0x12 },
+ 		Package(){0x0000FFFF, 2, 0, 0x13 },
+ 		Package(){0x0000FFFF, 3, 0, 0x10 },
+ 	})
+-
+-	/* SB PCI Bridge  */
++	/* SB PCI Bridge */
+ 	Name(PCIB, Package(){
+ 		/* PCI slots: slot 0 behind Dev14, Fun4. */
+ 		Package(){0x0005FFFF, 0, 0, 0x14 },

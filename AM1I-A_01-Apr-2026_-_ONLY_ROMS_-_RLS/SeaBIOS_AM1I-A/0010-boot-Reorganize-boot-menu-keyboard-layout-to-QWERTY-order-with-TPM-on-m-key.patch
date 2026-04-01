@@ -1,0 +1,120 @@
+boot: Reorganize boot menu keyboard layout to QWERTY order with TPM on m key
+
+Replace the alphabetical menu key layout with QWERTY keyboard order for more
+intuitive key selection. The new layout follows standard keyboard row order:
+numbers (1-0), then QWERTY rows (q-p, a-l, z-n), supporting 35 boot entries
+total. Move TPM menu from t key to m key - the last usable key at the end of
+the last usable keyboard row, to avoid mixing it with the regular menu entries.
+
+Rename menuchars[] to keyboard_keys[] to clarify this array represents physical
+keyboard layout rather than abstract menu characters. This prepares the codebase
+for upcoming numpad support addition with a separate logic for numpad key input.
+
+Signed-off-by: Mike Banon <mikebdp2@gmail.com>
+---
+ src/boot.c | 33 ++++++++++++++++-----------------
+ 1 file changed, 16 insertions(+), 17 deletions(-)
+
+diff --git a/src/boot.c b/src/boot.c
+index 8ebf5edc..55308865 100644
+--- a/src/boot.c
++++ b/src/boot.c
+@@ -746,12 +746,11 @@ int BootSequence VARLOW = -1;
+ 
+ #define DEFAULT_BOOTMENU_WAIT 2500
+ 
+-static const char menuchars[] = {
+-    '1', '2', '3', '4', '5', '6', '7', '8', '9',
+-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i',
+-    'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r',
+-    's', /* skip t (tpm menu) */
+-    'u', 'v', 'w', 'x', 'y', 'z'
++static const char keyboard_keys[] = {
++    '1','2','3','4','5','6','7','8','9','0',
++     'q','w','e','r','t','y','u','i','o','p',
++      'a','s','d','f','g','h','j','k','l',
++       'z','x','c','v','b','n' /* 'm' = TPM */
+ };
+ 
+ // Prepare merged boot menu with ramdisks and BootList entries
+@@ -766,7 +765,7 @@ prepare_bootmenu(struct menu_entry *entries, int *count)
+ 
+     // 1. Add ramdisks with bootorder priority or default.
+     int pool_count = ramdisk_get_count();
+-    for (int i = 0; i < pool_count && menu_count < ARRAY_SIZE(menuchars); i++) {
++    for (int i = 0; i < pool_count && menu_count < ARRAY_SIZE(keyboard_keys); i++) {
+         const char *name = ramdisk_get_name(i);
+         if (!name)
+             continue;
+@@ -796,7 +795,7 @@ prepare_bootmenu(struct menu_entry *entries, int *count)
+     // 2. Add BootList entries.
+     struct bootentry_s *pos;
+     hlist_for_each_entry(pos, &BootList, node) {
+-        if (menu_count >= ARRAY_SIZE(menuchars))
++        if (menu_count >= ARRAY_SIZE(keyboard_keys))
+             break;
+ 
+         entries[menu_count].is_ramdisk = 0;
+@@ -904,17 +903,17 @@ print_bootmenu(struct menu_entry *entries, int menu_count)
+     for (int i = 0; i < menu_count; i++) {
+         char desc[77];
+         if (entries[i].is_ramdisk) {
+-            printf("%c. Ramdisk [%s]\n", menuchars[i],
++            printf("%c. Ramdisk [%s]\n", keyboard_keys[i],
+                    ramdisk_get_name(entries[i].ramdisk_pool_index));
+         } else {
+-            printf("%c. %s\n", menuchars[i],
++            printf("%c. %s\n", keyboard_keys[i],
+                    strtcpy(desc, entries[i].bootlist_entry->description,
+                            ARRAY_SIZE(desc)));
+         }
+     }
+ 
+     if (tpm_can_show_menu())
+-        printf("\nt. TPM Configuration\n");
++        printf("\nm. TPM Configuration\n");
+ 
+     printf("\n> ");
+ }
+@@ -942,7 +941,7 @@ interactive_bootmenu(void)
+     wait_threads();
+ 
+     // Prepare merged menu FIRST (before any early returns).
+-    struct menu_entry entries[ARRAY_SIZE(menuchars)];
++    struct menu_entry entries[ARRAY_SIZE(keyboard_keys)];
+     int menu_count;
+     prepare_bootmenu(entries, &menu_count);
+ 
+@@ -1002,7 +1001,7 @@ interactive_bootmenu(void)
+         }
+ 
+         if (! is_menukey(key_scan, menukey)) {
+-            if (tpm_can_show_menu() && key_ascii == 't') {
++            if (tpm_can_show_menu() && key_ascii == 'm') {
+                 clear_keyboard_buffer();
+                 printf("\n");
+                 tpm_menu();
+@@ -1010,8 +1009,8 @@ interactive_bootmenu(void)
+             } else {
+                 // Non-menukey pressed - check ALL menu entries.
+                 for (int i = 0; i < menu_count; i++) {
+-                    if (key_ascii == menuchars[i]) {
+-                        printf("\n\n> %c\n", menuchars[i]);
++                    if (key_ascii == keyboard_keys[i]) {
++                        printf("\n\n> %c\n", keyboard_keys[i]);
+                         apply_boot_selection(i, entries, menu_count);
+                         free_ramdisk_bootorder_list();
+                         return;
+@@ -1057,8 +1056,8 @@ interactive_bootmenu(void)
+ 
+         // Check key press against prepared menu list.
+         for (int i = 0; i < menu_count; i++) {
+-            if (key_ascii == menuchars[i]) {
+-                printf("%c\n", menuchars[i]);
++            if (key_ascii == keyboard_keys[i]) {
++                printf("%c\n", keyboard_keys[i]);
+                 apply_boot_selection(i, entries, menu_count);
+                 free_ramdisk_bootorder_list();
+                 return;
+-- 
+2.53.0
